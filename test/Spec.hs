@@ -15,7 +15,7 @@ parseFailed :: Result a -> Bool
 parseFailed (Success _) = False
 parseFailed _ = True
 
-specParseYields :: String -> Expr -> SpecWith ()
+specParseYields :: String -> Term -> SpecWith ()
 specParseYields s expr =
     it ("parses " ++ s ++ " as " ++ show expr) $
         parse s `shouldSatisfy` yields expr

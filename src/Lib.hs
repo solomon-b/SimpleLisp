@@ -8,64 +8,85 @@ import Text.Trifecta
 import Text.Parser.Combinators
 
 
-data Expr
+data Term
     = Atom String
     | Number Integer
     | String String
     | Boolean Bool
-    | Cons Expr Expr
+    | Cons Term Term
     | Nil
     deriving (Show, Eq)
 
-parseNumber :: Parser Expr
+----------------
+---- Parser ----
+----------------
+
+parseNumber :: Parser Term
 parseNumber = Number <$> integer
 
-parseAtom :: Parser Expr
+parseAtom :: Parser Term
 parseAtom = do
     x  <- letter
     xs <- many alphaNum
     return $ Atom (x:xs)
 
-parseString' :: Parser Expr
+parseString' :: Parser Term
 parseString' = String <$> between (char '"') (char '"') (some alphaNum)
 
-parseBool :: Parser Expr
+parseBool :: Parser Term
 parseBool = Boolean <$> (string "True" $> True <|> (string "False" $> False))
 
-parseScalars :: Parser Expr
+parseScalars :: Parser Term
 parseScalars = parseNumber <|> parseString' <|> parseBool <|> parseAtom 
 
-parseRegList :: Parser Expr
-parseRegList = parens $ foldr Cons Nil <$> parseExpr `sepBy` spaces
+parseRegList :: Parser Term
+parseRegList = parens $ foldr Cons Nil <$> parseTerm `sepBy` spaces
  
-parseDotList :: Parser Expr
-parseDotList = parens $ foldr Cons Nil <$> parseExpr `sepBy` token (char '.')
+parseDotList :: Parser Term
+parseDotList = parens $ foldr Cons Nil <$> parseTerm `sepBy` token (char '.')
 
-parseList :: Parser Expr
+parseList :: Parser Term
 parseList = try parseDotList <|> try parseRegList
 
-parseExpr :: Parser Expr
-parseExpr = parseScalars <|> parseList
+parseTerm :: Parser Term
+parseTerm = parseScalars <|> parseList
 
-evalExpr :: Expr -> Expr
-evalExpr (Cons (Atom func) args) = apply func $ evalExpr <$> toList args
-evalExpr expr = expr
+parse :: String -> Result Term
+parse = parseString parseTerm mempty 
 
-apply :: String -> [Expr] -> Expr
+
+------------------
+--- Evaluation ---
+------------------
+-- | I'm not happy with any of this evaluation. I think I need to convert from 
+
+-- | Primitive Functions to be implented:
+-- eq?
+-- quote
+-- cons
+-- car
+-- cdr
+-- atom?
+-- define
+-- lambda
+-- cond
+
+evalTerm :: Term -> Term
+evalTerm (Cons (Atom func) args) = apply func $ evalTerm <$> toList args
+evalTerm expr = expr
+
+apply :: String -> [Term] -> Term
 apply func args = maybe (Boolean False) ($ args) $ lookup func primitives
 
-primitives :: [(String, [Expr] -> Expr)]
+primitives :: [(String, [Term] -> Term)]
 primitives = [("add", \xs -> Number . sum $ unpackNum <$> xs)]
 
-unpackNum :: Expr -> Integer
+unpackNum :: Term -> Integer
 unpackNum (Number n) = n
 unpackNum _ = 0
     
 -- unsafe!
-toList :: Expr -> [Expr]
+toList :: Term -> [Term]
 toList (Cons x xs) = x : toList xs
 toList Nil = []
 toList _ = undefined
-
-parse :: String -> Result Expr
-parse = parseString parseExpr mempty 
