@@ -17,6 +17,7 @@ data Term
     | Nil
     deriving (Show, Eq)
 
+
 ----------------
 ---- Parser ----
 ----------------
@@ -79,7 +80,17 @@ apply :: String -> [Term] -> Term
 apply func args = maybe (Boolean False) ($ args) $ lookup func primitives
 
 primitives :: [(String, [Term] -> Term)]
-primitives = [("add", \xs -> Number . sum $ unpackNum <$> xs)]
+primitives = [ ("add", \xs -> Number . sum $ unpackNum <$> xs)
+             , ("eq?", undefined)
+             , ("quote", undefined)
+             , ("cons", undefined)
+             , ("car", undefined)
+             , ("cdr", undefined)
+             , ("atom?", undefined)
+             , ("defined", undefined)
+             , ("lambda", undefined)
+             , ("cond", undefined)
+             ]
 
 unpackNum :: Term -> Integer
 unpackNum (Number n) = n

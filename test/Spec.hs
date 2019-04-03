@@ -39,9 +39,12 @@ checkParse = hspec . describe "Test Parser" $
         , ("(1 2 3)", Cons (Number 1) (Cons (Number 2) (Cons (Number 3) Nil)))
         , ("(1 . 2 . 3)", Cons (Number 1) (Cons (Number 2) (Cons (Number 3) Nil)))
         , ("(1 2 (True False))", Cons (Number 1) (Cons (Number 2) (Cons (Cons (Boolean True) (Cons (Boolean False) Nil)) Nil)))
-        , ("(add (1 2))", Cons (Atom "add") (Cons (Cons (Number 1) (Cons (Number 2) Nil)) Nil))
+        , ("(add (1 2))", add12)
         , ("(lambda x (add 1 2))", Cons (Atom "lambda") (Cons (Atom "x") (Cons (Cons (Atom "add") (Cons (Number 1) (Cons (Number 2) Nil))) Nil)))
         ]
+
+add = Atom "add"
+add12 = Cons add (Cons (Cons (Number 1) (Cons (Number 2) Nil)) Nil)
    
 checkEval :: IO ()
 checkEval = hspec . describe "Test Evaluation" $ undefined
