@@ -25,7 +25,7 @@ instance Show Term where
     show (Boolean bool) = show bool
     show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
 
-data EvalError = TypeError String
+data EvalError = TypeError String deriving Eq
 
 instance Show EvalError where
     show (TypeError xs) = "TypeError: " ++ xs
