@@ -1,7 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Lib where
 
 import Data.Functor
 import Control.Monad
+import Control.Monad.Except
 import Control.Applicative
 
 import Text.Trifecta
@@ -13,10 +15,20 @@ data Term
     | Number Integer
     | String String
     | Boolean Bool
-    | Cons Term Term
-    | Nil
-    deriving (Show, Eq)
+    | List [Term]
+    deriving Eq
 
+instance Show Term where
+    show (Atom str) = str
+    show (Number n) = show n
+    show (String str) = show str
+    show (Boolean bool) = show bool
+    show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
+
+data EvalError = TypeError String
+
+instance Show EvalError where
+    show (TypeError xs) = "TypeError: " ++ xs
 
 ----------------
 ---- Parser ----
@@ -41,10 +53,10 @@ parseScalars :: Parser Term
 parseScalars = parseNumber <|> parseString' <|> parseBool <|> parseAtom 
 
 parseRegList :: Parser Term
-parseRegList = parens $ foldr Cons Nil <$> parseTerm `sepBy` spaces
+parseRegList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` spaces
  
 parseDotList :: Parser Term
-parseDotList = parens $ foldr Cons Nil <$> parseTerm `sepBy` token (char '.')
+parseDotList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` token (char '.')
 
 parseList :: Parser Term
 parseList = try parseDotList <|> try parseRegList
@@ -59,8 +71,6 @@ parse = parseString parseTerm mempty
 ------------------
 --- Evaluation ---
 ------------------
--- | I'm not happy with any of this evaluation. I think I need to convert from 
-
 -- | Primitive Functions to be implented:
 -- eq?
 -- quote
@@ -72,32 +82,14 @@ parse = parseString parseTerm mempty
 -- lambda
 -- cond
 
-evalTerm :: Term -> Term
-evalTerm (Cons (Atom func) args) = apply func $ evalTerm <$> toList args
-evalTerm expr = expr
+evalTerm :: MonadError EvalError m => Term -> m Term
+evalTerm (List (Atom "add": args)) = Number . sum <$> traverse (asInteger <=< evalTerm) args
+evalTerm (List xs) = List <$> traverse evalTerm xs
+evalTerm expr = return expr
 
-apply :: String -> [Term] -> Term
-apply func args = maybe (Boolean False) ($ args) $ lookup func primitives
+asInteger :: (MonadError EvalError m) => Term -> m Integer
+asInteger (Number n) = return n
+asInteger term = throwError . TypeError $ "'" ++ show term ++ "'" ++ " is not an Integer"
 
-primitives :: [(String, [Term] -> Term)]
-primitives = [ ("add", \xs -> Number . sum $ unpackNum <$> xs)
-             , ("eq?", undefined)
-             , ("quote", undefined)
-             , ("cons", undefined)
-             , ("car", undefined)
-             , ("cdr", undefined)
-             , ("atom?", undefined)
-             , ("defined", undefined)
-             , ("lambda", undefined)
-             , ("cond", undefined)
-             ]
-
-unpackNum :: Term -> Integer
-unpackNum (Number n) = n
-unpackNum _ = 0
-    
--- unsafe!
-toList :: Term -> [Term]
-toList (Cons x xs) = x : toList xs
-toList Nil = []
-toList _ = undefined
+execEval :: String -> Result (Either EvalError Term)
+execEval str = runExcept . evalTerm <$> parse str
