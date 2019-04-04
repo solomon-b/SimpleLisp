@@ -25,7 +25,7 @@ instance Show Term where
     show (Boolean bool) = show bool
     show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
 
-data EvalError = TypeError String deriving Eq
+data EvalError = TypeError String | TooManyArguments deriving Eq
 
 instance Show EvalError where
     show (TypeError xs) = "TypeError: " ++ xs
@@ -40,7 +40,7 @@ parseNumber = Number <$> integer
 parseAtom :: Parser Term
 parseAtom = do
     x  <- letter
-    xs <- many alphaNum
+    xs <- many (alphaNum <|> char '?')
     return $ Atom (x:xs)
 
 parseString' :: Parser Term
@@ -84,10 +84,18 @@ parse = parseString parseTerm mempty
 
 evalTerm :: MonadError EvalError m => Term -> m Term
 evalTerm (List (Atom "add": args)) = Number . sum <$> traverse (asInteger <=< evalTerm) args
+evalTerm (List (Atom "eq?": args)) = Boolean . equal <$> traverse evalTerm args
 evalTerm (List xs) = List <$> traverse evalTerm xs
 evalTerm expr = return expr
 
-asInteger :: (MonadError EvalError m) => Term -> m Integer
+equal :: Eq a => [a] -> Bool
+equal (x:xs) = all (x ==) xs
+
+-- equal :: MonadError EvalError m => [Term] -> m Bool
+-- equal [x, y] = return $ x == y
+-- equal _ = throwError TooManyArguments
+
+asInteger :: MonadError EvalError m => Term -> m Integer
 asInteger (Number n) = return n
 asInteger term = throwError . TypeError $ "'" ++ show term ++ "'" ++ " is not an Integer"
 

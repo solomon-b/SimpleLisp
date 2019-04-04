@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Monad.Except (runExcept)
 import Control.Applicative
 import Text.Trifecta
 import Test.Hspec
@@ -16,17 +17,22 @@ parseFailed (Success _) = False
 parseFailed _ = True
 
 specParseYields :: String -> Term -> SpecWith ()
-specParseYields s expr =
-    it ("parses " ++ s ++ " as " ++ show expr) $
-        parse s `shouldSatisfy` yields expr
+specParseYields s term =
+    it ("parses " ++ s ++ " as " ++ show term) $
+        parse s `shouldSatisfy` yields term
 
 specParseFails :: String -> SpecWith ()
 specParseFails s =
     it ("fails to parse " ++ s) $
         parse s `shouldSatisfy` parseFailed
 
-checkParse :: IO ()
-checkParse = hspec . describe "Test Parser" $
+specEvalYields :: Term -> Either EvalError Term -> SpecWith ()
+specEvalYields term eterm =
+    it ("evaluates " ++ show term ++ " as " ++ show eterm) $
+        (runExcept . evalTerm) term `shouldBe` eterm
+    
+checkParse :: SpecWith ()
+checkParse = describe "Test Parser" $
     mapM_ (uncurry specParseYields)
         [ ("1", Number 1)
         , ("True", Boolean True)
@@ -34,20 +40,34 @@ checkParse = hspec . describe "Test Parser" $
         , ("\"Foobar\"", String "Foobar")
         , ("add", Atom "add")
         , ("lambda", Atom "lambda")
-        , ("()", Nil)
-        , ("(1)", Cons (Number 1) Nil)
-        , ("(1 2 3)", Cons (Number 1) (Cons (Number 2) (Cons (Number 3) Nil)))
-        , ("(1 . 2 . 3)", Cons (Number 1) (Cons (Number 2) (Cons (Number 3) Nil)))
-        , ("(1 2 (True False))", Cons (Number 1) (Cons (Number 2) (Cons (Cons (Boolean True) (Cons (Boolean False) Nil)) Nil)))
-        , ("(add (1 2))", add12)
-        , ("(lambda x (add 1 2))", Cons (Atom "lambda") (Cons (Atom "x") (Cons (Cons (Atom "add") (Cons (Number 1) (Cons (Number 2) Nil))) Nil)))
+        , ("()", List [])
+        , ("(1)", List [Number 1])
+        , ("(1 2 3)", List [Number 1, Number 2, Number 3])
+        , ("(1 . 2 . 3)", List [Number 1, Number 2, Number 3])
+        --, ("(True . 1 . 2 . 3)", List [Boolean True, Number 1, Number 2, Number 3])
+        , ("(1 2 (True False))", List [Number 1, Number 2, List [Boolean True, Boolean False]])
+        , ("(add 1 2)", List [Atom "add", Number 1, Number 2])
+        , ("(lambda x (add 1 2))", List [Atom "lambda", Atom "x", List [Atom "add", Number 1, Number 2]])
+        ]
+   
+checkEval :: SpecWith ()
+checkEval = describe "Test Evaluation" $
+    mapM_ (uncurry specEvalYields)
+        [ (Number 1, Right $ Number 1)
+        , (Boolean True, Right $ Boolean True)
+        , (Boolean False, Right $ Boolean False)
+        , (String "Foobar", Right $ String "Foobar")
+        , (Atom "add", Right $ Atom "add")
+        , (Atom "lambda", Right $ Atom "lambda")
+        , (List [], Right $ List [])
+        , (List [Number 1], Right $ List [Number 1])
+        , (List [Atom "add", Number 1, Number 2], Right $ Number 3)
+        , (List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]], Right $ Number 10)
+        , (List [Number 1, List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]]], Right $ List [Number 1, Number 10])
+        , (List [Boolean True, Number 1, List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]]], Right $ List [Boolean True, Number 1, Number 10])
         ]
 
-add = Atom "add"
-add12 = Cons add (Cons (Cons (Number 1) (Cons (Number 2) Nil)) Nil)
-   
-checkEval :: IO ()
-checkEval = hspec . describe "Test Evaluation" $ undefined
-
 main :: IO ()
-main = checkParse
+main = hspec $ do
+    checkParse
+    checkEval

@@ -8,9 +8,11 @@ stack exec simpleLisp (add 1 (add 2 3))
 ````
 
 ## TODO
-- Expression Evaluation (I'm not happy with the 24hour scheme implementation)
-- Some sort of error handling for the evaluator
-- Show Instance that recreates standard Lisp syntax
+- Implement primitive functions
+- Err on unbound Atoms
+- Fix dotlist parsing
+- Replicate mit-scheme list semantics: (1 1) should err for attempting to call `1`
+- Use State or Reader for user defined functions
 - QuickCheck tests based on parsing the show values of arbitrary Cons trees.
 - A REPL
 - Replace Term with a GADT and Existentials
