@@ -2,9 +2,12 @@ module Main where
 
 import Control.Monad.Except (runExcept)
 import Control.Applicative
-import Text.Trifecta
-import Test.Hspec
 import Data.Function (on)
+import Text.Trifecta
+
+-- | TODO: Add QuickCheck
+import Test.Hspec
+
 import Lib
 
 

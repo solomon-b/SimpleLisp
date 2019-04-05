@@ -25,12 +25,14 @@ data Term
 --    show (Boolean bool) = show bool
 --    show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
 
+-- | TODO: Add more Error types
 data EvalError = TypeError String | TooManyArguments deriving Eq
 
+-- | TODO: Improve Error Show instances
 instance Show EvalError where
     show (TypeError xs) = "TypeError: " ++ xs
     show TooManyArguments = "Too Many Arguments"
-    
+
 ----------------
 ---- Parser ----
 ----------------
@@ -72,7 +74,7 @@ parse = parseString parseTerm mempty
 ------------------
 --- Evaluation ---
 ------------------
--- | Primitive Functions to be implented:
+-- | Primitive Functions:
 -- eq?
 -- quote
 -- cons
@@ -83,12 +85,14 @@ parse = parseString parseTerm mempty
 -- lambda
 -- cond
 
+-- | Factor out the primitive function pattern matching into a global context object (ReaderT)
 evalTerm :: MonadError EvalError m => Term -> m Term
-evalTerm (List (Atom "add": args)) = Number . sum <$> traverse (asInteger <=< evalTerm) args
-evalTerm (List (Atom "eq?": args)) = fmap Boolean . equal =<<  traverse evalTerm args
-evalTerm (List (Atom "car": args)) = car =<< traverse evalTerm args
-evalTerm (List (Atom "cdr": args)) = fmap List . cdr =<< traverse evalTerm args
-evalTerm (List xs) = List <$> traverse evalTerm xs
+evalTerm (List (Atom "car"   : args)) = car                  =<< traverse evalTerm args
+evalTerm (List (Atom "atom?" : args)) = atom                 =<< traverse evalTerm args
+evalTerm (List (Atom "eq?"   : args)) = fmap Boolean . equal =<< traverse evalTerm args
+evalTerm (List (Atom "cdr"   : args)) = fmap List    . cdr   =<< traverse evalTerm args
+evalTerm (List (Atom "add"   : args)) = Number . sum         <$> traverse (asInteger <=< evalTerm) args
+evalTerm (List xs)                    = List                 <$> traverse evalTerm xs
 evalTerm expr = return expr
 
 asInteger :: MonadError EvalError m => Term -> m Integer
@@ -99,6 +103,7 @@ equal :: MonadError EvalError m => [Term] -> m Bool
 equal [x, y] = return $ x == y
 equal _ = throwError TooManyArguments
 
+-- | TODO: Can I get rid of the caste statement?
 car :: MonadError EvalError m => [Term] -> m Term
 car [] = throwError . TypeError $ "The object () passed to car is not the right type."
 car (x:xs) =
@@ -114,6 +119,14 @@ cdr (x:xs) =
         List (x:xs) -> return xs
         List []     -> throwError . TypeError $ "The object () passed to cdr is not the right type."
         term        -> throwError . TypeError $ "The object " ++ show term ++ " passed to cdr is not the right type."
+
+-- | TODO:
+-- | should (atom? (x))) == True ?
+-- | should this only be true for bound atoms?
+atom :: MonadError EvalError m => [Term] -> m Term
+atom [Atom _] = return $ Boolean True
+atom [_] = return $ Boolean False
+atom a@(x:xs) = throwError . TypeError $ "The object " ++ show a ++ " passed to atom? is not the right type."
 
 execEval :: String -> Result (Either EvalError Term)
 execEval str = runExcept . evalTerm <$> parse str
