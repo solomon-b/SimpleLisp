@@ -9,6 +9,7 @@ import Control.Applicative
 import Text.Trifecta
 import Text.Parser.Combinators
 
+data DottedList a b = a :|: b
 
 data Term
     = Atom String
@@ -16,7 +17,9 @@ data Term
     | String String
     | Boolean Bool
     | List [Term]
-    | DottedList [Term]
+    -- | TODO: Decide on a DottedList Implementation
+    -- | DottedList [Term] Term   <- The extra Term represents the non-Nil termination of the list. This version allows me to leverage functor/monad/traversable
+    -- | DottedList Term Term     <- A true lisp style dottedlist pair. This version cannot leverage functor/monad/traversable
     deriving (Show, Eq)
 
 --instance Show Term where
@@ -57,6 +60,7 @@ parseScalars = parseNumber <|> parseString' <|> parseBool <|> parseAtom
 parseRegList :: Parser Term
 parseRegList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` spaces
  
+-- | TODO: Fix Dottedlist Parser
 parseDotList :: Parser Term
 parseDotList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` token (char '.')
 
@@ -129,3 +133,8 @@ atom a@(x:xs) = throwError . TypeError $ "The object " ++ show a ++ " passed to 
 
 execEval :: String -> Result (Either EvalError Term)
 execEval str = runExcept . evalTerm <$> parse str
+
+
+-- | TODO: Implement REPL
+repl :: IO ()
+repl = undefined
