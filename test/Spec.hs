@@ -34,6 +34,7 @@ specEvalYields term eterm =
     it ("evaluates " ++ show term ++ " as " ++ show eterm) $
         (runExcept . evalTerm) term `shouldBe` eterm
     
+-- | Add unhappy parses
 checkParse :: SpecWith ()
 checkParse = describe "Test Parser" $
     mapM_ (uncurry specParseYields)
@@ -53,6 +54,7 @@ checkParse = describe "Test Parser" $
         , ("(lambda x (add 1 2))", List [Atom "lambda", Atom "x", List [Atom "add", Number 1, Number 2]])
         ]
    
+-- | Add unhappy evaluations
 checkEval :: SpecWith ()
 checkEval = describe "Test Evaluation" $
     mapM_ (uncurry specEvalYields)
@@ -70,6 +72,8 @@ checkEval = describe "Test Evaluation" $
         , (List [Boolean True, Number 1, List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]]], Right $ List [Boolean True, Number 1, Number 10])
         , (List [Atom "eq?", Number 1, Number 1], Right $ Boolean True)
         , (List [Atom "eq?", Number 3, List [Atom "add", Number 1, Number 2]], Right $ Boolean True)
+        , (List [Atom "car", List [Number 1, Number 2]], Right $ Number 1)
+        , (List [Atom "cdr", List [Number 1, Number 2]], Right $ List [Number 2])
         ]
 
 main :: IO ()

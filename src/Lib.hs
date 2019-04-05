@@ -16,6 +16,7 @@ data Term
     | String String
     | Boolean Bool
     | List [Term]
+    | DottedList [Term]
     deriving (Show, Eq)
 
 --instance Show Term where
@@ -33,6 +34,7 @@ instance Show EvalError where
     show (TypeError xs) = "TypeError: " ++ xs
     show TooManyArguments = "Too Many Arguments"
 
+
 ----------------
 ---- Parser ----
 ----------------
@@ -41,10 +43,7 @@ parseNumber :: Parser Term
 parseNumber = Number <$> integer
 
 parseAtom :: Parser Term
-parseAtom = do
-    x  <- letter
-    xs <- many (alphaNum <|> char '?')
-    return $ Atom (x:xs)
+parseAtom = (\x xs -> Atom (x:xs)) <$> letter <*> many (alphaNum <|> char '?')
 
 parseString' :: Parser Term
 parseString' = String <$> between (char '"') (char '"') (some alphaNum)
@@ -103,7 +102,7 @@ equal :: MonadError EvalError m => [Term] -> m Bool
 equal [x, y] = return $ x == y
 equal _ = throwError TooManyArguments
 
--- | TODO: Can I get rid of the caste statement?
+-- | TODO: Can I get rid of the case statement?
 car :: MonadError EvalError m => [Term] -> m Term
 car [] = throwError . TypeError $ "The object () passed to car is not the right type."
 car (x:xs) =
@@ -125,7 +124,7 @@ cdr (x:xs) =
 -- | should this only be true for bound atoms?
 atom :: MonadError EvalError m => [Term] -> m Term
 atom [Atom _] = return $ Boolean True
-atom [_] = return $ Boolean False
+atom [_]      = return $ Boolean False
 atom a@(x:xs) = throwError . TypeError $ "The object " ++ show a ++ " passed to atom? is not the right type."
 
 execEval :: String -> Result (Either EvalError Term)
