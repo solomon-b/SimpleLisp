@@ -11,7 +11,8 @@ stack exec simpleLisp (add 1 (add 2 3))
 - Implement primitive functions
 - Err on unbound Atoms
 - Fix dotlist parsing
-- Replicate mit-scheme list semantics: (1 1) should err for attempting to call `1`
+- Replicate mit-scheme list semantics: eg., (1 1) should err for attempting to call `1`
+- Improve errors
 - Use State or Reader for user defined functions
 - QuickCheck tests based on parsing the show values of arbitrary Cons trees.
 - A REPL

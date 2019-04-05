@@ -65,6 +65,8 @@ checkEval = describe "Test Evaluation" $
         , (List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]], Right $ Number 10)
         , (List [Number 1, List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]]], Right $ List [Number 1, Number 10])
         , (List [Boolean True, Number 1, List [Atom "add", Number 1, List [Atom "add", Number 2, List [Atom "add", Number 3, Number 4]]]], Right $ List [Boolean True, Number 1, Number 10])
+        , (List [Atom "eq?", Number 1, Number 1], Right $ Boolean True)
+        , (List [Atom "eq?", Number 3, List [Atom "add", Number 1, Number 2]], Right $ Boolean True)
         ]
 
 main :: IO ()

@@ -16,20 +16,21 @@ data Term
     | String String
     | Boolean Bool
     | List [Term]
-    deriving Eq
+    deriving (Show, Eq)
 
-instance Show Term where
-    show (Atom str) = str
-    show (Number n) = show n
-    show (String str) = show str
-    show (Boolean bool) = show bool
-    show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
+--instance Show Term where
+--    show (Atom str) = str
+--    show (Number n) = show n
+--    show (String str) = show str
+--    show (Boolean bool) = show bool
+--    show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
 
 data EvalError = TypeError String | TooManyArguments deriving Eq
 
 instance Show EvalError where
     show (TypeError xs) = "TypeError: " ++ xs
-
+    show TooManyArguments = "Too Many Arguments"
+    
 ----------------
 ---- Parser ----
 ----------------
@@ -84,20 +85,35 @@ parse = parseString parseTerm mempty
 
 evalTerm :: MonadError EvalError m => Term -> m Term
 evalTerm (List (Atom "add": args)) = Number . sum <$> traverse (asInteger <=< evalTerm) args
-evalTerm (List (Atom "eq?": args)) = Boolean . equal <$> traverse evalTerm args
+evalTerm (List (Atom "eq?": args)) = fmap Boolean . equal =<<  traverse evalTerm args
+evalTerm (List (Atom "car": args)) = car =<< traverse evalTerm args
+evalTerm (List (Atom "cdr": args)) = fmap List . cdr =<< traverse evalTerm args
 evalTerm (List xs) = List <$> traverse evalTerm xs
 evalTerm expr = return expr
 
-equal :: Eq a => [a] -> Bool
-equal (x:xs) = all (x ==) xs
-
--- equal :: MonadError EvalError m => [Term] -> m Bool
--- equal [x, y] = return $ x == y
--- equal _ = throwError TooManyArguments
-
 asInteger :: MonadError EvalError m => Term -> m Integer
 asInteger (Number n) = return n
-asInteger term = throwError . TypeError $ "'" ++ show term ++ "'" ++ " is not an Integer"
+asInteger term = throwError . TypeError $ "'" ++ show term ++ "'" ++ " is not an Integer."
+
+equal :: MonadError EvalError m => [Term] -> m Bool
+equal [x, y] = return $ x == y
+equal _ = throwError TooManyArguments
+
+car :: MonadError EvalError m => [Term] -> m Term
+car [] = throwError . TypeError $ "The object () passed to car is not the right type."
+car (x:xs) =
+    case x of
+        List (x:xs) -> return x
+        List []     -> throwError . TypeError $ "The object () passed to car is not the right type."
+        term        -> throwError . TypeError $ "The object " ++ show term ++ " passed to car is not the right type."
+       
+cdr :: MonadError EvalError m => [Term] -> m [Term]
+cdr [] = throwError . TypeError $ "The object () passed to cdr is not the right type."
+cdr (x:xs) =
+    case x of
+        List (x:xs) -> return xs
+        List []     -> throwError . TypeError $ "The object () passed to cdr is not the right type."
+        term        -> throwError . TypeError $ "The object " ++ show term ++ " passed to cdr is not the right type."
 
 execEval :: String -> Result (Either EvalError Term)
 execEval str = runExcept . evalTerm <$> parse str
