@@ -4,12 +4,14 @@ module Lib where
 import Data.Functor
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.State
 import Control.Applicative
+
+import System.IO
+import System.Console.Haskeline
 
 import Text.Trifecta
 import Text.Parser.Combinators
-
-data DottedList a b = a :|: b
 
 data Term
     = Atom String
@@ -17,9 +19,7 @@ data Term
     | String String
     | Boolean Bool
     | List [Term]
-    -- | TODO: Decide on a DottedList Implementation
-    -- | DottedList [Term] Term   <- The extra Term represents the non-Nil termination of the list. This version allows me to leverage functor/monad/traversable
-    -- | DottedList Term Term     <- A true lisp style dottedlist pair. This version cannot leverage functor/monad/traversable
+    | DotList [Term] Term
     deriving (Show, Eq)
 
 --instance Show Term where
@@ -41,6 +41,7 @@ instance Show EvalError where
 ----------------
 ---- Parser ----
 ----------------
+-- | TODO: Investigate possibility custom error reporting in Trifecta
 
 parseNumber :: Parser Term
 parseNumber = Number <$> integer
@@ -60,9 +61,12 @@ parseScalars = parseNumber <|> parseString' <|> parseBool <|> parseAtom
 parseRegList :: Parser Term
 parseRegList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` spaces
  
--- | TODO: Fix Dottedlist Parser
 parseDotList :: Parser Term
-parseDotList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` token (char '.')
+parseDotList = parens $ do
+  car <- foldr (:) [] <$> parseTerm `sepBy` spaces
+  void . token $ char '.'
+  cdr <- parseTerm
+  return $ DotList car cdr
 
 parseList :: Parser Term
 parseList = try parseDotList <|> try parseRegList
@@ -77,13 +81,9 @@ parse = parseString parseTerm mempty
 ------------------
 --- Evaluation ---
 ------------------
--- | Primitive Functions:
--- eq?
+-- | TODO: Primitive Functions
 -- quote
 -- cons
--- car
--- cdr
--- atom?
 -- define
 -- lambda
 -- cond
@@ -123,9 +123,6 @@ cdr (x:xs) =
         List []     -> throwError . TypeError $ "The object () passed to cdr is not the right type."
         term        -> throwError . TypeError $ "The object " ++ show term ++ " passed to cdr is not the right type."
 
--- | TODO:
--- | should (atom? (x))) == True ?
--- | should this only be true for bound atoms?
 atom :: MonadError EvalError m => [Term] -> m Term
 atom [Atom _] = return $ Boolean True
 atom [_]      = return $ Boolean False
@@ -135,6 +132,24 @@ execEval :: String -> Result (Either EvalError Term)
 execEval str = runExcept . evalTerm <$> parse str
 
 
--- | TODO: Implement REPL
-repl :: IO ()
-repl = undefined
+--------------
+---- REPL ----
+--------------
+
+type Repl a = InputT IO a
+
+prompt :: String -> IO String
+prompt text = do
+    putStr text
+    hFlush stdout
+    getLine
+
+repl :: Repl ()
+repl = forever $ do
+  rawInput <- getInputLine "> "
+  case rawInput of
+    Nothing -> repl
+    Just input -> do
+       let parsedResult = parse input
+       let evalResult = execEval input
+       liftIO $ print evalResult

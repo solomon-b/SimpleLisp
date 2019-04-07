@@ -1,8 +1,7 @@
 module Main where
 
 import Lib
-
-import System.Environment (getArgs)
+import System.Console.Haskeline (runInputT, defaultSettings)
 
 main :: IO ()
-main = execEval . concat <$> getArgs >>= print
+main = runInputT defaultSettings repl
