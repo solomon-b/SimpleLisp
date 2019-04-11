@@ -25,7 +25,7 @@ data Term
   | Boolean Bool
   | List [Term]
   | DotList [Term] Term
-  deriving (Eq)
+  deriving Eq
 
 instance Show Term where
     show (Symbol str) = str
@@ -33,13 +33,14 @@ instance Show Term where
     show (String str) = show str
     show (Boolean bool) = show bool
     show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
-    show (DotList xs x) = "(" ++ unwords (show <$> xs) ++ " . " ++ show x ++ show ")"
+    show (DotList xs x) = "(" ++ unwords (show <$> xs) ++ " . " ++ show x ++ ")"
 
--- | TODO: Add more Error types
 data EvalError
   = TypeError String Term
   | TooManyArguments String Int
   | ObjectNotApplicable Term
+  | UnspecifiedReturn
+  | IllFormedSyntax
   deriving Eq
 
 -- | TODO: Improve Error Show instances
@@ -49,6 +50,8 @@ instance Show EvalError where
                                       " has been called with " ++ show args ++
                                       " arguments; it requires exactly 1 argument."
   show (ObjectNotApplicable obj) = "The object '" ++ show obj ++ "' is not applicable."
+  show UnspecifiedReturn = "Unspecified return value."
+  show IllFormedSyntax = "Ill-formed syntax"
 
 
 data Expr where
@@ -94,13 +97,9 @@ parseScalars = parseQuote <|> parseNumber <|> parseString' <|> parseBool <|> par
 
 parseRegList :: Parser Term
 parseRegList = parens $ List . foldr (:) [] <$> parseTerm `sepBy` spaces
- 
+
 parseDotList :: Parser Term
-parseDotList = parens $ do
-  car <- foldr (:) [] <$> parseTerm `sepBy` spaces
-  void . token $ char '.'
-  cdr <- parseTerm
-  return $ DotList car cdr
+parseDotList = parens $ DotList . foldr (:) [] <$> parseTerm `sepEndBy` spaces <* token (char '.') <*> parseTerm
 
 parseList :: Parser Term
 parseList = try parseDotList <|> try parseRegList
@@ -116,9 +115,16 @@ parse = parseString parseTerm mempty
 --- Evaluation ---
 ------------------
 -- | TODO: Primitive Functions
--- define
+-- atom?  ✓ 
+-- eq     ✓
+-- car    ✓
+-- cdr    ✓
+-- cons   ✓
+-- quote  ✓
+-- cond   ✓
 -- lambda
--- cond
+-- label
+-- fix :D
 
 -- | Factor out the primitive function pattern matching into a global context object (ReaderT)
 evalTerm :: MonadError EvalError m => Term -> m Term
@@ -126,24 +132,42 @@ evalTerm (List [Symbol "quote", value]) = return value
 evalTerm (List (Symbol "cons"  : args)) = cons                 =<< traverse evalTerm args
 evalTerm (List (Symbol "car"   : args)) = car                  =<< traverse evalTerm args
 evalTerm (List (Symbol "atom?" : args)) = atom                 =<< traverse evalTerm args
-evalTerm (List (Symbol "eq?"   : args)) = fmap Boolean . equal =<< traverse evalTerm args
+evalTerm (List (Symbol "eq?"   : args)) = fmap Boolean . eq    =<< traverse evalTerm args
 evalTerm (List (Symbol "cdr"   : args)) = fmap List    . cdr   =<< traverse evalTerm args
+evalTerm (List (Symbol "cond"  : args)) = cond                 =<< traverse (evalTerm <=< quotePredicates) args
 evalTerm (List (Symbol "add"   : args)) = Number . sum         <$> traverse (asInteger <=< evalTerm) args
-evalTerm (List [])                     = List                  <$> traverse evalTerm []
-evalTerm (List xs)                     = badAppplication       =<< traverse evalTerm xs
+evalTerm (List [])                      = List                 <$> traverse evalTerm []
+evalTerm (List xs)                      = badAppplication      =<< traverse evalTerm xs
 evalTerm expr = return expr
 
 asInteger :: MonadError EvalError m => Term -> m Integer
 asInteger (Number n) = return n
 asInteger term = throwError $ TypeError "asInteger" term
 
-
 badAppplication :: MonadError EvalError m => [Term] -> m Term
 badAppplication (x:xs) = throwError $ ObjectNotApplicable x
 
-equal :: MonadError EvalError m => [Term] -> m Bool
-equal [x, y] = return $ x == y
-equal xs = throwError $ TooManyArguments "equal" (length xs)
+quotePredicates :: MonadError EvalError m => Term -> m Term
+quotePredicates (List [p, e]) = do
+  p' <- evalTerm p
+  e' <- evalTerm e
+  return $ List [Symbol "quote", List [p', e']]
+quotePredicates _      = throwError IllFormedSyntax
+
+cond :: MonadError EvalError m => [Term] -> m Term
+cond [] = throwError UnspecifiedReturn
+cond (x:xs) =
+  case x of
+    List [Boolean p, e] -> if p then return e else cond xs
+    List [Boolean pe] -> if pe then return (Boolean pe) else cond xs
+    List _ -> throwError IllFormedSyntax
+    DotList [Boolean p, e] (List []) -> if p then return e else cond xs
+    DotList [Boolean pe] (List []) -> if pe then return (Boolean pe) else cond xs
+    _ -> throwError IllFormedSyntax
+
+eq :: MonadError EvalError m => [Term] -> m Bool
+eq [x, y] = return $ x == y
+eq xs = throwError $ TooManyArguments "equal" (length xs)
 
 cons :: MonadError EvalError m => [Term] -> m Term
 cons [x, List []] = return $ List [x]
