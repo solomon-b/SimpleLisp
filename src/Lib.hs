@@ -1,14 +1,8 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
 module Lib where
-
-import Debug.Trace
 
 import Data.Typeable
 import Data.Functor
@@ -19,7 +13,6 @@ import Control.Monad.Except
 import Control.Monad.State
 import Control.Applicative
 
-import GHC.Exts (IsList(..))
 import System.IO
 import System.Console.Haskeline
 
@@ -37,12 +30,6 @@ infixr 5 :-.
 --  show (v :-: vs)  = show v <> " " <> show vs
 --  show (a :-. b)   =  show a <> " . " <> show b
 --  show Nil         = ""
-
-instance IsList (DotList a) where
-  type Item (DotList a) = a
-  fromList = foldr (:-:) Nil
-  toList Nil = []
-  toList (t :-: ts) = t : toList ts
 
 listToDot :: [a] -> DotList a
 listToDot [t, t'] = t :-. t'
@@ -92,24 +79,6 @@ instance Show EvalError where
   show UnspecifiedReturn = "Unspecified return value."
   show IllFormedSyntax = "Ill-formed syntax"
 
-
-data Expr where
-  Numby :: Integer -> Expr
-  Truthy :: Bool -> Expr 
-  Stringy :: String -> Expr
-
-elimExpr :: (forall a. a -> r) -> Expr -> r
-elimExpr f (Numby a) = f a
-elimExpr f (Truthy a) = f a
-
-data Dynamic where
-  Dynamic :: Typeable t => t -> Dynamic
-
-elimDynamic :: (forall a. Typeable a => a -> r) -> Dynamic -> r
-elimDynamic f (Dynamic a) = f a
-
-fromDynamic :: Typeable a => Dynamic -> Maybe a
-fromDynamic = elimDynamic cast
 
 ----------------
 ---- Parser ----
@@ -196,7 +165,7 @@ quotePredicates (List (p :-: e :-: Nil)) = do
 quotePredicates _      = throwError IllFormedSyntax
 
 cond :: MonadError EvalError m => DotList Term -> m Term
-cond [] = throwError UnspecifiedReturn
+cond Nil = throwError UnspecifiedReturn
 cond (x :-: xs) =
   case x of
     List (Boolean pe :-: Nil)       -> if pe then return (Boolean pe) else cond xs
