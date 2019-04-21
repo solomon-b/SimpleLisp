@@ -23,16 +23,14 @@ import Text.Trifecta
 import Text.Parser.Combinators
 
 data DotList a = a :-: (DotList a) | a :-. a
-  deriving (Functor, Foldable, Traversable, Eq, Show)
+  deriving (Functor, Foldable, Traversable, Eq)
 
 infixr 5 :-:
 infixr 5 :-.
 
---instance Show a => Show (DotList a) where
---  show (v :-: Nil) = show v
---  show (v :-: vs)  = show v <> " " <> show vs
---  show (a :-. b)   =  show a <> " . " <> show b
---  show Nil         = ""
+instance Show a => Show (DotList a) where
+  show (v :-: vs)  = show v <> " " <> show vs
+  show (a :-. b)   =  show a <> " . " <> show b
 
 listToDot :: [a] -> DotList a
 listToDot [t, t'] = t :-. t'
@@ -46,11 +44,13 @@ data Term
   | List (DotList Term)
   | DotList (DotList Term)
   | Nil
-  deriving (Eq, Show)
+  | Error EvalError
+  deriving Eq
 
 data Arrity = Unary Term | Binary Term Term
 
-newtype Env = Env [(String, Term)] deriving Show
+newtype Env = Env [()] deriving Show
+--newtype Env = Env [(String, Term)] deriving Show
 
 --instance Semigroup Term where
 --  (<>) (List ts) (List ts') = List (ts <> ts')
@@ -60,13 +60,17 @@ newtype Env = Env [(String, Term)] deriving Show
 --  mempty = Nil
 --  mappend = (<>)
 
---instance Show Term where
---    show (Symbol str) = str
---    show (Number n) = show n
---    show (String str) = show str
---    show (Boolean bool) = show bool
---    show (List xs) = "(" ++ show xs ++ ")"
---    show (DotList xs) = "(" ++ show xs ++ ")"
+instance Show Term where
+    show (Symbol str) = str
+    show (Number n) = show n
+    show (String str) = show str
+    show (Boolean bool) = show bool
+    show (List xs) = "(" ++ show xs ++ ")"
+    show (DotList xs) = "(" ++ show xs ++ ")"
+    show (Error e) = show e
+    show Nil = "()"
+
+data ParseError = ParseError deriving Show
 
 data EvalError
   = TypeError String Term
@@ -91,6 +95,7 @@ instance Show EvalError where
 ---- Parser ----
 ----------------
 -- | TODO: Investigate possibility custom error reporting in Trifecta
+-- | ()) should fail
 
 parseNumber :: Parser Term
 parseNumber = Number <$> integer
@@ -132,8 +137,6 @@ parseList = try parseDotList <|> try parseRegList
 parseTerm :: Parser Term
 parseTerm = parseScalars <|> parseList
 
-parse :: String -> Result Term
-parse = parseString parseTerm mempty 
 
 ------------------
 --- Evaluation ---
@@ -170,23 +173,52 @@ evalTerm expr = return expr
 -- execEval :: String -> Result (Either EvalError Term)
 -- execEval str = runExcept . evalTerm <$> parse str
 
-newtype LispM env a = LispM { unLispM :: StateT env (Except EvalError) a}
-  deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError)
-  
-runLispM :: env -> LispM env a -> Either EvalError a
-runLispM env = runExcept . flip evalStateT env . unLispM 
+class MonadIO m => MonadInput m where
+  readRepl :: String -> m String
 
-parseAndEval :: String -> LispM Env Term
-parseAndEval str = do
-  let p = parse str
-  case p of
-    Success terms -> evalTerm terms
-    _ -> throwError IllFormedSyntax
+class Monad m => MonadParse m where
+  parse :: String -> m Term
 
-main' :: String -> Either EvalError Term
-main' str = do
-  let env = Env []
-  runLispM env (parseAndEval str)
+class Monad m => MonadEval m where
+  eval :: Term -> m Term
+
+instance MonadEval (LispM env) where
+  eval term = evalTerm term `catchError` (return . Error)
+
+instance MonadParse (LispM env) where
+  parse str = 
+    case parseString parseTerm mempty str of
+      Success res -> return res
+      _ -> return $ Error IllFormedSyntax
+
+instance MonadInput (LispM env) where
+  readRepl str = do
+    rawInput <- LispM . lift . lift $ getInputLine str
+    case rawInput of
+      Just input -> return input
+      Nothing -> return mempty
+
+newtype LispM env a = LispM { unLispM :: ExceptT EvalError (StateT env (InputT IO)) a}
+  deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError, MonadIO)
+
+runLispM :: s -> LispM s a -> IO s
+runLispM env = runInputT defaultSettings . flip execStateT env . runExceptT . unLispM 
+
+repl :: Env -> IO ()
+repl env = do
+  env' <- runLispM env $ do
+    -- Testing state:
+    Env state <- get
+    --liftIO $ print state
+    put . Env $ ():state 
+
+    rawInput <- readRepl "> "
+    p <- parse rawInput 
+    term <- eval p
+    liftIO $ print term
+    return term
+  --print env'
+  repl env'
 
 
 --- | Error Handling
@@ -204,6 +236,9 @@ quotePredicates :: (MonadState env m, MonadError EvalError m) => Term -> m Term
 quotePredicates (List (p :-: e :-. Nil)) = do
   p' <- evalTerm p
   return $ List (Symbol "quote" :-: (List (p' :-: (e :-. Nil)) :-. Nil))
+quotePredicates (List (p :-. Nil)) = do
+  p' <- evalTerm p
+  return $ List (Symbol "quote" :-: (DotList $ p' :-. Nil) :-. Nil)
 quotePredicates Nil = return Nil
 quotePredicates x = throwError IllFormedSyntax
 
@@ -292,7 +327,9 @@ cond :: (MonadState env m, MonadError EvalError m) => DotList Term -> m Term
 cond (x :-. Nil) =
   case x of
     List (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else throwError UnspecifiedReturn
+    DotList (pe :-. Nil) -> return pe
     Nil -> throwError UnspecifiedReturn
+    x -> return x
 cond (x :-: xs) =
   case x of
     List (Boolean pe :-. Nil)       -> if pe then return (Boolean pe) else cond xs
@@ -300,7 +337,8 @@ cond (x :-: xs) =
     List _ -> throwError IllFormedSyntax
     DotList (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else cond xs
     DotList (Boolean pe :-. Nil)       -> if pe then return (Boolean pe) else cond xs
-    _ -> throwError IllFormedSyntax
+    Nil -> throwError UnspecifiedReturn
+    x -> return x
 cond _ = throwError IllFormedSyntax
 
 eq :: MonadError EvalError m => m Arrity -> m Term
@@ -340,7 +378,7 @@ lambda mterm = mterm >>= \case
 ---- REPL ----
 --------------
 
-type Repl a = InputT IO a
+--type Repl a = InputT IO a
 
 prompt :: String -> IO String
 prompt text = do
@@ -348,8 +386,6 @@ prompt text = do
   hFlush stdout
   getLine
 
-repl :: Repl ()
-repl = undefined
 -- repl = forever $ do
 --   rawInput <- getInputLine "> "
 --   case rawInput of
