@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
@@ -5,18 +7,18 @@
 {-# LANGUAGE DeriveTraversable #-}
 module Lib where
 
-import Debug.Trace
-
 import Data.Typeable
 import Data.Functor
 import Data.List (intercalate)
+import Data.Text (Text(..))
+import Data.Text.Encoding (encodeUtf8)
 
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State
 import Control.Applicative
 
-import System.IO
 import System.Console.Haskeline
 
 import Text.Trifecta
@@ -48,17 +50,6 @@ data Term
   deriving Eq
 
 data Arrity = Unary Term | Binary Term Term
-
-newtype Env = Env [()] deriving Show
---newtype Env = Env [(String, Term)] deriving Show
-
---instance Semigroup Term where
---  (<>) (List ts) (List ts') = List (ts <> ts')
---  (<>) term term' = DotList [term] term'
-
---instance Monoid Term where
---  mempty = Nil
---  mappend = (<>)
 
 instance Show Term where
     show (Symbol str) = str
@@ -137,6 +128,8 @@ parseList = try parseDotList <|> try parseRegList
 parseTerm :: Parser Term
 parseTerm = parseScalars <|> parseList
 
+parse :: Text -> Result Term
+parse = parseByteString parseTerm mempty . encodeUtf8
 
 ------------------
 --- Evaluation ---
@@ -172,53 +165,6 @@ evalTerm expr = return expr
 
 -- execEval :: String -> Result (Either EvalError Term)
 -- execEval str = runExcept . evalTerm <$> parse str
-
-class MonadIO m => MonadInput m where
-  readRepl :: String -> m String
-
-class Monad m => MonadParse m where
-  parse :: String -> m Term
-
-class Monad m => MonadEval m where
-  eval :: Term -> m Term
-
-instance MonadEval (LispM env) where
-  eval term = evalTerm term `catchError` (return . Error)
-
-instance MonadParse (LispM env) where
-  parse str = 
-    case parseString parseTerm mempty str of
-      Success res -> return res
-      _ -> return $ Error IllFormedSyntax
-
-instance MonadInput (LispM env) where
-  readRepl str = do
-    rawInput <- LispM . lift . lift $ getInputLine str
-    case rawInput of
-      Just input -> return input
-      Nothing -> return mempty
-
-newtype LispM env a = LispM { unLispM :: ExceptT EvalError (StateT env (InputT IO)) a}
-  deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError, MonadIO)
-
-runLispM :: s -> LispM s a -> IO s
-runLispM env = runInputT defaultSettings . flip execStateT env . runExceptT . unLispM 
-
-repl :: Env -> IO ()
-repl env = do
-  env' <- runLispM env $ do
-    -- Testing state:
-    Env state <- get
-    --liftIO $ print state
-    put . Env $ ():state 
-
-    rawInput <- readRepl "> "
-    p <- parse rawInput 
-    term <- eval p
-    liftIO $ print term
-    return term
-  --print env'
-  repl env'
 
 
 --- | Error Handling
@@ -323,6 +269,7 @@ less terms = return . Boolean $ f terms
 
 --- | McCarthy Primitives
 
+-- | TODO: cond needs to be simplified drastically
 cond :: (MonadState env m, MonadError EvalError m) => DotList Term -> m Term
 cond (x :-. Nil) =
   case x of
@@ -374,17 +321,11 @@ lambda mterm = mterm >>= \case
   Binary args body -> undefined
   
 
---------------
----- REPL ----
---------------
+------------
+--- REPL ---
+------------
 
 --type Repl a = InputT IO a
-
-prompt :: String -> IO String
-prompt text = do
-  putStr text
-  hFlush stdout
-  getLine
 
 -- repl = forever $ do
 --   rawInput <- getInputLine "> "
@@ -395,3 +336,90 @@ prompt text = do
 --        let evalResult = execEval input
 --        liftIO $ print evalResult
 
+
+--class MonadIO m => MonadRepl m where
+--  readRepl :: String -> m String
+--
+--class Monad m => MonadEval m where
+--  eval :: Term -> m Term
+
+--instance MonadEval (LispM env) where
+--  eval term = evalTerm term `catchError` (return . Error)
+
+
+--instance MonadRepl (LispM env) where
+--  readRepl str = do
+--    rawInput <- LispM . lift . lift $ getInputLine str
+--    case rawInput of
+--      Just input -> return input
+--      Nothing -> return mempty
+
+
+--repl :: Env' -> IO ()
+--repl env = do
+--  env' <- runLispM env $ do
+--    -- Testing state:
+--    Env' state <- get
+--    --liftIO $ print state
+--    put . Env' $ ():state 
+--
+--    rawInput <- readRepl "> "
+--    p <- parse rawInput 
+--    term <- eval p
+--    liftIO $ print term
+--    return term
+--  --print env'
+--  repl env'
+
+
+-------------
+--- LispM ---
+-------------
+
+newtype EvalEnv = EvalEnv [()]
+
+newtype LispM env a = LispM { unLispM :: ExceptT EvalError (State env) a}
+  deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError)
+
+runLispM :: EvalEnv -> LispM EvalEnv Term -> Either EvalError Term
+runLispM env = flip evalState env . runExceptT . unLispM 
+
+eval :: Result Term -> LispM EvalEnv Term
+eval (Success term) = evalTerm term
+eval (Failure err)  = throwError IllFormedSyntax
+
+------------
+--- AppM ---
+------------
+
+data Env = Env { _source :: Text, _logLevel :: LogLevel }
+
+newtype AppM m a = AppM { unAppM :: ReaderT Env m a }
+  deriving (Functor, Applicative, Monad, MonadReader Env, MonadIO)
+
+runAppM :: Env -> AppM m a -> m a
+runAppM env (AppM m) = runReaderT m env
+
+interpret :: AppM IO (Either EvalError Term)
+interpret = do
+  source <- asks _source
+  let evalEnv = EvalEnv []
+  let lispExpression = parse source
+  return . runLispM evalEnv $ eval lispExpression
+  
+
+--------------------
+--- Capabilities ---
+--------------------
+-- How does a repl relate to these capabilities?
+
+data LogLevel = Normal | Debug
+
+class Monad m => MonadLog m where
+  logMessage :: LogLevel -> Text -> m ()
+
+logNormal :: MonadLog m => Text -> m ()
+logNormal = logMessage Normal
+
+logDebug :: MonadLog m => Text -> m ()
+logDebug = logMessage Debug

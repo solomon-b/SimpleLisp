@@ -1,9 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Data.Functor.Compose
 import Control.Monad.Except (runExcept)
 import Control.Applicative
 import Data.Function (on)
+import Data.Text (Text(..))
 import Text.Trifecta
 
 -- | TODO: Add QuickCheck
@@ -20,20 +22,20 @@ parseFailed :: Result a -> Bool
 parseFailed (Success _) = False
 parseFailed _ = True
 
-specParseYields :: String -> Term -> SpecWith ()
+specParseYields :: Text -> Term -> SpecWith ()
 specParseYields s term =
-    it ("parses " ++ s ++ " as " ++ show term) $
+    it ("parses " ++ show s ++ " as " ++ show term) $
         parse s `shouldSatisfy` yields term
 
-specParseFails :: String -> SpecWith ()
+specParseFails :: Text -> SpecWith ()
 specParseFails s =
-    it ("fails to parse " ++ s) $
+    it ("fails to parse " ++ show s) $
         parse s `shouldSatisfy` parseFailed
 
 specEvalYields :: Term -> Either EvalError Term -> SpecWith ()
 specEvalYields term eterm =
     it ("evaluates " ++ show term ++ " as " ++ show eterm) $
-        (runExcept . evalTerm) term `shouldBe` eterm
+        (runLispM (EvalEnv []) . eval) (pure term) `shouldBe` eterm
     
 -- | TODO: Add unhappy parses
 checkParse :: SpecWith ()
