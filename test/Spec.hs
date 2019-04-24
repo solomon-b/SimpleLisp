@@ -60,6 +60,17 @@ checkParse = describe "Test Parser" $
         , ("(cons 1 2)", List (Symbol "cons" :-: Number 1 :-: Number 2 :-. Nil))
         , ("(cons 1 (cons 2 ()))", List (Symbol "cons" :-: Number 1 :-: List (Symbol "cons" :-: Number 2 :-: (Nil :-. Nil)) :-. Nil))
         , ("(cons 1 '(2 3))", List (Symbol "cons" :-: Number 1 :-: List (Symbol "quote" :-: List (Number 2 :-: Number 3 :-. Nil) :-. Nil) :-. Nil))
+        -- cond
+        , ("(cond)", undefined)
+        , ("(cond ())", List (Symbol "cond" :-: Nil :-. Nil))
+        , ("(cond 1)", List (Symbol "cond" :-: Number 1 :-. Nil))
+        , ("(cond 1 2)", undefined)
+        , ("(cond (()))", List (Symbol "cond" :-: List (Nil :-. Nil) :-. Nil))
+        , ("(cond (True))", List (Symbol "cond" :-: List (Boolean True :-. Nil):-. Nil))
+        , ("(cond (1))", List (Symbol "cond" :-: List (Number 1 :-. Nil):-. Nil))
+        , ("(cond (True 1))", List (Symbol "cond" :-: List (Boolean True :-: Number 1 :-. Nil):-. Nil))
+        , ("(cond (2 1))", List (Symbol "cond" :-: List (Number 2 :-: Number 1 :-. Nil):-. Nil))
+        , ("(cond (False 1) (True 2))", List (Symbol "cond" :-: List (Boolean False :-: Number 1 :-. Nil) :-: List (Boolean True :-: Number 2 :-. Nil) :-. Nil))
         ]
    
 -- | TODO: Add unhappy evaluations
@@ -98,6 +109,13 @@ checkEval = describe "Test Evaluation" $ do
       -- cdr
       , (List (Symbol "cdr" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil), List (Number 2 :-. Nil))
       --, (List (Symbol "cdr" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-: Nil) :-: Nil), Number 2)
+      -- cond
+      , (List (Symbol "cond" :-: List (Nil :-. Nil) :-. Nil), Nil)
+      , (List (Symbol "cond" :-: List (Boolean True :-. Nil):-. Nil), Boolean True)
+      , (List (Symbol "cond" :-: List (Number 1 :-. Nil):-. Nil), Number 1)
+      , (List (Symbol "cond" :-: List (Number 2 :-: Number 1 :-. Nil):-. Nil), Number 1)
+      , (List (Symbol "cond" :-: List (Boolean True :-: Number 1 :-. Nil):-. Nil), Number 1)
+      , (List (Symbol "cond" :-: List (Boolean False :-: Number 1 :-. Nil) :-: List (Boolean True :-: Number 2 :-. Nil) :-. Nil), Number 2)
       ]
   describe "Failure" $
     mapM_ (uncurry specEvalYields) $
@@ -117,6 +135,8 @@ checkEval = describe "Test Evaluation" $ do
       , (List (Symbol "cdr" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil), ObjectNotApplicable (Number 1))
       -- List
       , (List (Boolean True :-: Number 1 :-. Nil), ObjectNotApplicable (Boolean True))
+      , (List (Symbol "cond" :-: Nil :-. Nil), IllFormedSyntax)
+      , (List (Symbol "cond" :-: Number 1 :-. Nil), IllFormedSyntax)
       ]
 
 main :: IO ()

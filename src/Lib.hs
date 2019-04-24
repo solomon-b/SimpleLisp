@@ -274,18 +274,19 @@ cond :: (MonadState env m, MonadError EvalError m) => DotList Term -> m Term
 cond (x :-. Nil) =
   case x of
     List (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else throwError UnspecifiedReturn
+    List (Number n  :-: e :-. Nil)  -> evalTerm e
     DotList (pe :-. Nil) -> return pe
-    Nil -> throwError UnspecifiedReturn
-    x -> return x
+    x -> throwError IllFormedSyntax
 cond (x :-: xs) =
   case x of
     List (Boolean pe :-. Nil)       -> if pe then return (Boolean pe) else cond xs
     List (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else cond xs
+    List (Number n  :-: e :-. Nil) -> evalTerm e
     List _ -> throwError IllFormedSyntax
     DotList (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else cond xs
     DotList (Boolean pe :-. Nil)       -> if pe then return (Boolean pe) else cond xs
     Nil -> throwError UnspecifiedReturn
-    x -> return x
+    x -> throwError IllFormedSyntax
 cond _ = throwError IllFormedSyntax
 
 eq :: MonadError EvalError m => m Arrity -> m Term
