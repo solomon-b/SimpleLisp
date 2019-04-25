@@ -85,15 +85,15 @@ testCases =
     )
   , ( "(1 . 2)"
     , DotList (Number 1 :-. Number 2 )
-    , Left $ ObjectNotApplicable (Number 1)
+    , Left $ NotAProperList (DotList (Number 1 :-. Number 2 ))
     )
   , ( "(1 2 . 3)"
     , DotList (Number 1 :-: Number 2 :-. Number 3)
-    , Left $ ObjectNotApplicable (Number 1)
+    , Left $ NotAProperList (DotList (Number 1 :-: Number 2 :-. Number 3))
     )
   , ( "(1 . (2 . (3 . 4)))"
     , DotList (Number 1 :-. DotList (Number 2 :-. DotList (Number 3 :-. Number 4)))
-    , Left $ ObjectNotApplicable (Number 1)
+    , Left $ NotAProperList (DotList (Number 3 :-. Number 4)) -- Would be nice if this printed the full list
     )
   ]
   ++
@@ -236,8 +236,7 @@ checkParse = describe "Test Parser" $
     mapM_ (uncurry specParseYields) $ (\(str, parse, _) -> (str, parse)) <$> testCases
 
 checkEval :: SpecWith ()
-checkEval = describe "Test Evaluation" $ do
-  describe "Success" $
+checkEval = describe "Test Evaluation" $
     mapM_ (uncurry specEvalYields) $ (\(str, _, term) -> (str, term)) <$> testCases
       
 

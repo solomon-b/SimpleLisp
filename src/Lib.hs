@@ -161,6 +161,7 @@ evalTerm (List (Symbol "cdr"   :-: args)) = arrity 1 "cdr" cdr    =<< traverse e
 evalTerm (List (Symbol "cond"  :-: args)) = cond                  =<< traverse (evalTerm <=< quotePredicates) args
 evalTerm (List (Symbol "add"   :-: args)) = add                   =<< traverse (asInteger <=< evalTerm) args
 evalTerm (List xs)                        = badAppplication       =<< traverse evalTerm xs
+evalTerm (DotList xs)                     = improperList          =<< traverse evalTerm xs
 evalTerm expr = return expr
 
 -- execEval :: String -> Result (Either EvalError Term)
@@ -177,6 +178,9 @@ asInteger term = throwError $ TypeError "asInteger" term
 badAppplication :: MonadError EvalError m => DotList Term -> m Term
 badAppplication (x :-. xs) = throwError $ ObjectNotApplicable x
 badAppplication (x :-: xs) = throwError $ ObjectNotApplicable x
+
+improperList :: MonadError EvalError m => DotList Term -> m Term
+improperList xs = throwError . NotAProperList $ DotList xs
 
 quotePredicates :: (MonadState env m, MonadError EvalError m) => Term -> m Term
 quotePredicates (List (p :-: e :-. Nil)) = do
