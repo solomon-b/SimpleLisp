@@ -32,170 +32,214 @@ specParseFails s =
     it ("fails to parse " ++ show s) $
         parse s `shouldSatisfy` parseFailed
 
-specEvalYields :: Term -> Either EvalError Term -> SpecWith ()
+specEvalYields :: Text -> Either EvalError Term -> SpecWith ()
 specEvalYields term eterm =
     it ("evaluates " ++ show term ++ " as " ++ show eterm) $
-        (runLispM (EvalEnv []) . eval) (pure term) `shouldBe` eterm
-    
+        (runLispM (EvalEnv []) . eval) (parse term) `shouldBe` eterm
+
+
+testCases :: [(Text, Term, Either EvalError Term)]
+testCases =
+  -- Atomic Values
+  [ ( "1"
+    , Number 1
+    , Right $ Number 1
+    )
+  , ( "True",
+      Boolean True
+    , Right $ Boolean True)
+  , ( "False"
+    , Boolean False
+    , Right $ Boolean False
+    )
+  , ( "\"Foobar\""
+    , String "Foobar"
+    , Right $ String "Foobar"
+    )
+  , ( "add"
+    , Symbol "add"
+    , Right $ Symbol "add"
+    )
+  , ( "()"
+    , Nil
+    , Right Nil
+    )
+  ]
+  ++
+  -- Lists/DotLists
+  [ ( "(1)"
+    , List (Number 1 :-. Nil)
+    , Left $ ObjectNotApplicable (Number 1)
+    )
+  , ( "(True)"
+    , List (Boolean True :-. Nil)
+    , Left $ ObjectNotApplicable (Boolean True)
+    )
+  , ( "(1 2 3)"
+    , List (Number 1 :-: Number 2 :-: Number 3 :-. Nil)
+    , Left $ ObjectNotApplicable (Number 1)
+    )
+  , ( "(1 2 (True False))"
+    , List (Number 1 :-: Number 2 :-: List (Boolean True :-: Boolean False :-. Nil) :-. Nil)
+    , Left $ ObjectNotApplicable (Boolean True)
+    )
+  , ( "(1 . 2)"
+    , DotList (Number 1 :-. Number 2 )
+    , Left $ ObjectNotApplicable (Number 1)
+    )
+  , ( "(1 2 . 3)"
+    , DotList (Number 1 :-: Number 2 :-. Number 3)
+    , Left $ ObjectNotApplicable (Number 1)
+    )
+  , ( "(1 . (2 . (3 . 4)))"
+    , DotList (Number 1 :-. DotList (Number 2 :-. DotList (Number 3 :-. Number 4)))
+    , Left $ ObjectNotApplicable (Number 1)
+    )
+  ]
+  ++
+  -- add
+  [ ( "(add 1 2)"
+    , List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil)
+    , Right $ Number 3
+    )
+  , ( "(add 1 (add 2 (add 3 4)))"
+    , List (Symbol "add" :-: Number 1 :-: List (Symbol "add" :-: Number 2 :-: List (Symbol "add" :-: Number 3 :-: Number 4 :-. Nil) :-. Nil) :-. Nil)
+    , Right $ Number 10
+    )
+  ]
+  ++
+  -- quote
+  [ ( "'(1 2)"
+    , List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil)
+    , Right $ List (Number 1 :-: Number 2 :-. Nil)
+    )
+  , ( "'(1 . 2)"
+    , List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil)
+    , Right $ DotList (Number 1 :-. Number 2)
+    )
+  ]
+  ++
+  -- atom
+  [ ( "(atom? 1)"
+    , List (Symbol "atom?" :-: Number 1 :-. Nil)
+    , Right $ Boolean True
+    )
+  , ( "(atom? '(1))"
+    , List (Symbol "atom?" :-: List (Symbol "quote" :-: List (Number 1 :-. Nil) :-. Nil) :-. Nil)
+    , Right $ Boolean False
+    )
+  ]
+  ++
+  -- eq?
+  [ ( "(eq? 1 1)"
+    , List (Symbol "eq?" :-: Number 1 :-: Number 1 :-. Nil)
+    , Right $ Boolean True
+    )
+  , ( "(eq? 1 2)"
+    , List (Symbol "eq?" :-: Number 1 :-: Number 2 :-. Nil)
+    , Right $ Boolean False
+    )
+  , ( "(eq? 3 (add 1 2))"
+    , List (Symbol "eq?" :-: Number 3 :-: List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil) :-. Nil)
+    , Right $ Boolean True
+    )
+  ]
+  ++
+  -- cons
+  [ ( "(cons 1 2)"
+    , List (Symbol "cons" :-: Number 1 :-: Number 2 :-. Nil)
+    , Right $ DotList (Number 1 :-. Number 2)
+    )
+  , ( "(cons 1 '(2 3))"
+    , List (Symbol "cons" :-: Number 1 :-: List (Symbol "quote" :-: List (Number 2 :-: Number 3 :-. Nil) :-. Nil) :-. Nil)
+    , Right $ List (Number 1 :-: Number 2 :-: Number 3 :-. Nil)
+    )
+  , ( "(cons 1 (cons 2 ()))"
+    , List (Symbol "cons" :-: Number 1 :-: List (Symbol "cons" :-: Number 2 :-: (Nil :-. Nil)) :-. Nil)
+    , Right $ DotList (Number 1 :-: Number 2 :-. Nil)
+    )
+  ]
+  ++
+  -- car
+  [ ( "(car '(1 2))"
+    , List (Symbol "car" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil)
+    , Right $ Number 1
+    )
+  , ( "(car '(1 . 2))"
+    , List (Symbol "car" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil) :-. Nil)
+    , Right $ Number 1
+    )
+  ]
+  ++
+  -- cdr
+  [ ( "(cdr '(1 2))"
+    , List (Symbol "cdr" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil)
+    , Right $ List (Number 2 :-. Nil)
+    )
+  , ( "(cdr '(1 . 2))"
+    , List (Symbol "cdr" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil) :-. Nil)
+    , Right $ Number 2
+    )
+  ]
+  ++
+  -- cond
+  [ ( "(cond)"
+    , List (Symbol "cond" :-. Nil)
+    , Left UnspecifiedReturn
+    )
+  , ( "(cond ())"
+    , List (Symbol "cond" :-: Nil :-. Nil)
+    , Left IllFormedSyntax
+    )
+  , ( "(cond 1)"
+    , List (Symbol "cond" :-: Number 1 :-. Nil)
+    , Left IllFormedSyntax
+    )
+  , ( "(cond 1 2)"
+    , List (Symbol "cond" :-: Number 1 :-: Number 2 :-. Nil)
+    , Left IllFormedSyntax
+    )
+  , ( "(cond (()))"
+    , List (Symbol "cond" :-: List (Nil :-. Nil) :-. Nil)
+    , Right Nil
+    )
+  , ( "(cond (True))"
+    , List (Symbol "cond" :-: List (Boolean True :-. Nil):-. Nil)
+    , Right $ Boolean True
+    )
+  , ( "(cond (1))"
+    , List (Symbol "cond" :-: List (Number 1 :-. Nil):-. Nil)
+    , Right $ Number 1
+    )
+  , ( "(cond (True 1))"
+    , List (Symbol "cond" :-: List (Boolean True :-: Number 1 :-. Nil):-. Nil)
+    , Right $ Number 1
+    )
+  , ( "(cond (2 1))"
+    , List (Symbol "cond" :-: List (Number 2 :-: Number 1 :-. Nil):-. Nil)
+    , Right $ Number 1
+    )
+  , ( "(cond (False 1) (True 2))"
+    , List (Symbol "cond" :-: List (Boolean False :-: Number 1 :-. Nil) :-: List (Boolean True :-: Number 2 :-. Nil) :-. Nil)
+    , Right $ Number 2
+    )
+  ]
+  -- ++
+  -- -- lambda
+  -- [ ( "(lambda x (add 1 2))"
+  --   )
+  -- ]
+        
 -- | TODO: Add unhappy parses
 checkParse :: SpecWith ()
 checkParse = describe "Test Parser" $
-    mapM_ (uncurry specParseYields) $
-        -- Atomic Values
-        [ ("1", Number 1)
-        , ("True", Boolean True)
-        , ("False", Boolean False)
-        , ("\"Foobar\"", String "Foobar")
-        , ("add", Symbol "add")
-        , ("()", Nil)
-        ]
-        ++
-        -- Lists/DotLists
-        [ ("(1)", List (Number 1 :-. Nil))
-        , ("(True)", List (Boolean True :-. Nil))
-        , ("(1 2 3)", List (Number 1 :-: Number 2 :-: Number 3 :-. Nil))
-        , ("(1 2 (True False))", List (Number 1 :-: Number 2 :-: List (Boolean True :-: Boolean False :-. Nil) :-. Nil))
-        , ("(1 . 2)", DotList (Number 1 :-. Number 2))
-        , ("(1 2 . 3)", DotList (Number 1 :-: Number 2 :-. Number 3))
-        , ("(1 . (2 . (3 . 4)))", DotList (Number 1 :-. DotList (Number 2 :-. DotList (Number 3 :-. Number 4))))
-        ]
-        ++
-        -- add
-        [ ("(add 1 2)", List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil)) 
-        , ("(add 1 (add 2 (add 3 4)))", List (Symbol "add" :-: Number 1 :-: List (Symbol "add" :-: Number 2 :-: List (Symbol "add" :-: Number 3 :-: Number 4 :-. Nil) :-. Nil) :-. Nil))
-        ]
-        ++
-        -- quote
-        [ ("'(1 2)", List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil))
-        , ("'(1 . 2)", List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil))
-        ]
-        ++
-        -- atom
-        [ ("(atom? 1)", List (Symbol "atom?" :-: Number 1 :-. Nil))
-        , ("(atom? '(1))", List (Symbol "atom?" :-: List (Symbol "quote" :-: List (Number 1 :-. Nil) :-. Nil) :-. Nil))
-        ]
-        ++
-        -- eq?
-        [ ("(eq? 1 1)", List (Symbol "eq?" :-: Number 1 :-: Number 1 :-. Nil))
-        , ("(eq? 1 2)", List (Symbol "eq?" :-: Number 1 :-: Number 2 :-. Nil))
-        , ("(eq? 3 (add 1 2))", List (Symbol "eq?" :-: Number 3 :-: List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil) :-. Nil))
-        ]
-        ++
-        -- cons
-        [ ("(cons 1 2)", List (Symbol "cons" :-: Number 1 :-: Number 2 :-. Nil))
-        , ("(cons 1 '(2 3))", List (Symbol "cons" :-: Number 1 :-: List (Symbol "quote" :-: List (Number 2 :-: Number 3 :-. Nil) :-. Nil) :-. Nil))
-        , ("(cons 1 (cons 2 ()))", List (Symbol "cons" :-: Number 1 :-: List (Symbol "cons" :-: Number 2 :-: (Nil :-. Nil)) :-. Nil))
-        ]
-        ++
-        -- car
-        [ ("(car '(1 2))", List (Symbol "car" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil))
-        , ("(car '(1 . 2))", List (Symbol "car" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil) :-. Nil))
-        ]
-        ++
-        -- cdr
-        [ ("(cdr '(1 2))", List (Symbol "cdr" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil))
-        , ("(cdr '(1 . 2))", List (Symbol "cdr" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil) :-. Nil))
-        ]
-        ++
-        -- cond
-        [ ("(cond)", List (Symbol "cond" :-. Nil))
-        , ("(cond ())", List (Symbol "cond" :-: Nil :-. Nil))
-        , ("(cond 1)", List (Symbol "cond" :-: Number 1 :-. Nil))
-        , ("(cond 1 2)", List (Symbol "cond" :-: Number 1 :-: Number 2 :-. Nil))
-        , ("(cond (()))", List (Symbol "cond" :-: List (Nil :-. Nil) :-. Nil))
-        , ("(cond (True))", List (Symbol "cond" :-: List (Boolean True :-. Nil):-. Nil))
-        , ("(cond (1))", List (Symbol "cond" :-: List (Number 1 :-. Nil):-. Nil))
-        , ("(cond (True 1))", List (Symbol "cond" :-: List (Boolean True :-: Number 1 :-. Nil):-. Nil))
-        , ("(cond (2 1))", List (Symbol "cond" :-: List (Number 2 :-: Number 1 :-. Nil):-. Nil))
-        , ("(cond (False 1) (True 2))", List (Symbol "cond" :-: List (Boolean False :-: Number 1 :-. Nil) :-: List (Boolean True :-: Number 2 :-. Nil) :-. Nil))
-        ]
-        ++
-        -- lambda
-        [ ("(lambda x (add 1 2))", List (Symbol "lambda" :-: Symbol "x" :-: List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil) :-. Nil))
-        ]
-   
--- | TODO: Add unhappy evaluations
+    mapM_ (uncurry specParseYields) $ (\(str, parse, _) -> (str, parse)) <$> testCases
+
 checkEval :: SpecWith ()
 checkEval = describe "Test Evaluation" $ do
   describe "Success" $
-    mapM_ (uncurry specEvalYields) $
-      getCompose . fmap Right . Compose $
-        -- Atomic Values
-      [ (Number 1, Number 1)
-      , (Boolean True, Boolean True)
-      , (Boolean False, Boolean False)
-      , (String "Foobar", String "Foobar")
-      , (Symbol "add", Symbol "add")
-      , (Symbol "lambda", Symbol "lambda")
-      , (Nil, Nil)
-      ]
-      ++
-      -- add
-      [ (List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil), Number 3)
-      , (List (Symbol "add" :-: Number 1 :-: List (Symbol "add" :-: Number 2 :-: List (Symbol "add" :-: Number 3 :-: Number 4 :-. Nil) :-. Nil) :-. Nil), Number 10)
-      ]
-      ++
-      -- quote
-      [ (List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil), List (Number 1 :-: Number 2 :-. Nil))
-      , (List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil), DotList (Number 1 :-. Number 2))
-      ]
-      ++
-      -- atom
-      [ (List (Symbol "atom?" :-: Number 1 :-. Nil), Boolean True)
-      , (List (Symbol "atom?" :-: List (Symbol "quote" :-: List (Number 1 :-. Nil) :-. Nil) :-. Nil) , Boolean False)
-      ]
-      ++
-      -- eq?
-      [ (List (Symbol "eq?" :-: Number 1 :-: Number 1 :-. Nil), Boolean True)
-      , (List (Symbol "eq?" :-: Number 1 :-: Number 2 :-. Nil), Boolean False)
-      , (List (Symbol "eq?" :-: Number 3 :-: List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil) :-. Nil), Boolean True)
-      ]
-      ++
-      -- cons
-      [ (List (Symbol "cons" :-: Number 1 :-: Number 2 :-. Nil), DotList (Number 1 :-. Number 2))
-      , (List (Symbol "cons" :-: Number 1 :-: List (Symbol "quote" :-: List (Number 2 :-: Number 3 :-. Nil) :-. Nil) :-. Nil), List (Number 1 :-: Number 2 :-: Number 3 :-. Nil))
-      , (List (Symbol "cons" :-: Number 1 :-: List (Symbol "cons" :-: Number 2 :-: (Nil :-. Nil)) :-. Nil), DotList (Number 1 :-: Number 2 :-. Nil))
-      ]
-      ++
-      -- car
-      [ (List (Symbol "car" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil), Number 1)
-      , (List (Symbol "car" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil) :-. Nil), Number 1)
-      ]
-      ++
-      -- cdr
-      [ (List (Symbol "cdr" :-: List (Symbol "quote" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil) :-. Nil), List (Number 2 :-. Nil))
-      , (List (Symbol "cdr" :-: List (Symbol "quote" :-: DotList (Number 1 :-. Number 2) :-. Nil) :-. Nil), Number 2)
-      ]
-      ++
-      -- cond
-      [ (List (Symbol "cond" :-: List (Nil :-. Nil) :-. Nil), Nil)
-      , (List (Symbol "cond" :-: List (Boolean True :-. Nil):-. Nil), Boolean True)
-      , (List (Symbol "cond" :-: List (Number 1 :-. Nil):-. Nil), Number 1)
-      , (List (Symbol "cond" :-: List (Boolean True :-: Number 1 :-. Nil):-. Nil), Number 1)
-      , (List (Symbol "cond" :-: List (Number 2 :-: Number 1 :-. Nil):-. Nil), Number 1)
-      , (List (Symbol "cond" :-: List (Boolean False :-: Number 1 :-. Nil) :-: List (Boolean True :-: Number 2 :-. Nil) :-. Nil), Number 2)
-      ]
-  describe "Failure" $
-    mapM_ (uncurry specEvalYields) $
-      getCompose $ Left <$> Compose
-      [ (List (Number 1 :-. Nil), ObjectNotApplicable (Number 1))
-      -- add -- TODO: figure out how to label the error thrown from `asInteger` with the actual func called
-      , (List (Symbol "add" :-: Number 1 :-: Boolean True :-. Nil), TypeError "asInteger" (Boolean True))
-      -- quote
-      -- atom
-      , (List (Symbol "atom?" :-: DotList (Nil :-. Nil) :-. Nil), NotAProperList (DotList (Nil :-. Nil)))
-      -- eq
-      -- cons
-      , (List (Symbol "cons" :-: List (Number 1 :-: Number 2 :-. Nil) :-: Number 3 :-. Nil), ObjectNotApplicable (Number 1))
-      -- car
-      , (List (Symbol "car" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil), ObjectNotApplicable (Number 1))
-      -- cdr
-      , (List (Symbol "cdr" :-: List (Number 1 :-: Number 2 :-. Nil) :-. Nil), ObjectNotApplicable (Number 1))
-      -- List
-      , (List (Boolean True :-: Number 1 :-. Nil), ObjectNotApplicable (Boolean True))
-      , (List (Symbol "cond" :-: Nil :-. Nil), IllFormedSyntax)
-      , (List (Symbol "cond" :-: Number 1 :-. Nil), IllFormedSyntax)
-      ]
+    mapM_ (uncurry specEvalYields) $ (\(str, _, term) -> (str, term)) <$> testCases
+      
 
 main :: IO ()
 main = hspec $ do
