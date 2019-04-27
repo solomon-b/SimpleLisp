@@ -7,11 +7,12 @@
 {-# LANGUAGE DeriveTraversable #-}
 module Lib where
 
-import Data.Typeable
 import Data.Functor
-import Data.List (intercalate)
-import Data.Text (Text(..))
+import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+import Data.Maybe (isJust)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 
 import Control.Monad
 import Control.Monad.Except
@@ -19,10 +20,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Applicative
 
-import System.Console.Haskeline
-
 import Text.Trifecta
-import Text.Parser.Combinators
 
 data DotList a = a :-: (DotList a) | a :-. a
   deriving (Functor, Foldable, Traversable, Eq)
@@ -35,6 +33,7 @@ instance Show a => Show (DotList a) where
   show (a :-. b)   =  show a <> " . " <> show b
 
 listToDot :: [a] -> DotList a
+listToDot [] = undefined
 listToDot [t, t'] = t :-. t'
 listToDot (t:ts) = t :-: listToDot ts
 
@@ -70,17 +69,19 @@ data EvalError
   | NotAProperList Term
   | UnspecifiedReturn
   | IllFormedSyntax
+  | UnboundVariable
   deriving Eq
 
 -- | TODO: Improve Error Show instances
 instance Show EvalError where
   show (TypeError func term) = "TypeError: The object " ++ show term ++ " passed to " ++ func ++ " is not the right type."
-  show (WrongArrity func arrity params) = "The procedure " ++ func ++ " has been called with " ++ show params ++
-                                      " arguments; it requires exactly " ++ show arrity ++ " argument"
+  show (WrongArrity func arrity' params) = "The procedure " ++ func ++ " has been called with " ++ show params ++
+                                      " arguments; it requires exactly " ++ show arrity' ++ " argument"
   show (ObjectNotApplicable obj) = "The object '" ++ show obj ++ "' is not applicable."
   show (NotAProperList term) = "Combination must be a proper list: " ++ show term
   show UnspecifiedReturn = "Unspecified return value."
   show IllFormedSyntax = "Ill-formed syntax"
+  show UnboundVariable = "Unbound Variable"
 
 ----------------
 ---- Parser ----
@@ -112,7 +113,8 @@ parseRegList = parens $ do
   if null xs
   then return Nil
   else return . List $ f xs
-  where f [x] = x :-. Nil
+  where f [] = undefined
+        f [x] = x :-. Nil
         f (x:xs) = x :-: f xs
 
 parseDotList :: Parser Term
@@ -144,45 +146,44 @@ parse = parseByteString parseTerm mempty . encodeUtf8
 -- cond   ✓
 -- lambda
 -- label
+-- let
 -- fix :D
 -- various arithmetic
 -- various logic
 
 -- | Factor out the primitive function pattern matching into a global context object (ReaderT)
-evalTerm :: (MonadState env m, MonadError EvalError m) => Term -> m Term
-evalTerm (List (Symbol "add"   :-. Nil))  = return $ Number 0            -- special case for no arrity
-evalTerm (List (Symbol "cond"  :-. Nil))  = throwError UnspecifiedReturn -- special case for no arrity
-evalTerm (List (Symbol "quote" :-: value :-. Nil)) = return value
-evalTerm (List (Symbol "atom?" :-: args)) = arrity 1 "atom?" atom =<< traverse evalTerm args
-evalTerm (List (Symbol "cons"  :-: args)) = arrity 2 "cons" cons  =<< traverse evalTerm args
-evalTerm (List (Symbol "car"   :-: args)) = arrity 1 "car" car    =<< traverse evalTerm args
-evalTerm (List (Symbol "eq?"   :-: args)) = arrity 2 "eq?" eq     =<< traverse evalTerm args
-evalTerm (List (Symbol "cdr"   :-: args)) = arrity 1 "cdr" cdr    =<< traverse evalTerm args
-evalTerm (List (Symbol "cond"  :-: args)) = cond                  =<< traverse (evalTerm <=< quotePredicates) args
-evalTerm (List (Symbol "add"   :-: args)) = add                   =<< traverse (asInteger <=< evalTerm) args
-evalTerm (List xs)                        = badAppplication       =<< traverse evalTerm xs
-evalTerm (DotList xs)                     = improperList          =<< traverse evalTerm xs
+evalTerm :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => Term -> m Term
+evalTerm (List (Symbol "add"    :-. Nil))  = return $ Number 0            -- special case for no arrity
+evalTerm (List (Symbol "cond"   :-. Nil))  = throwError UnspecifiedReturn -- special case for no arrity
+evalTerm (List (Symbol "quote"  :-: value :-. Nil)) = return value
+evalTerm (List (Symbol "atom?"  :-: args)) = arrity 1 "atom?" atom    =<< traverse evalTerm args
+evalTerm (List (Symbol "cons"   :-: args)) = arrity 2 "cons" cons     =<< traverse evalTerm args
+evalTerm (List (Symbol "car"    :-: args)) = arrity 1 "car" car       =<< traverse evalTerm args
+evalTerm (List (Symbol "eq?"    :-: args)) = arrity 2 "eq?" eq        =<< traverse evalTerm args
+evalTerm (List (Symbol "cdr"    :-: args)) = arrity 1 "cdr" cdr       =<< traverse evalTerm args
+evalTerm (List (Symbol "define" :-: args)) = evalTerm =<< arrity 2 "define" define args
+evalTerm (List (Symbol "cond"   :-: args)) = cond                     =<< traverse (evalTerm <=< quotePredicates) args
+evalTerm (List (Symbol "add"    :-: args)) = add                      =<< traverse (asInteger <=< evalTerm) args
+evalTerm (List xs)                         = badAppplication          =<< traverse evalTerm xs
+evalTerm (DotList xs)                      = improperList             =<< traverse evalTerm xs
+evalTerm (Symbol str) = evalTerm =<< getVar str 
 evalTerm expr = return expr
-
--- execEval :: String -> Result (Either EvalError Term)
--- execEval str = runExcept . evalTerm <$> parse str
 
 
 --- | Error Handling
-
 asInteger :: MonadError EvalError m => Term -> m Term
 asInteger (Number n) = return $ Number n
 asInteger Nil = return Nil
 asInteger term = throwError $ TypeError "asInteger" term
 
 badAppplication :: MonadError EvalError m => DotList Term -> m Term
-badAppplication (x :-. xs) = throwError $ ObjectNotApplicable x
-badAppplication (x :-: xs) = throwError $ ObjectNotApplicable x
+badAppplication (x :-. _) = throwError $ ObjectNotApplicable x
+badAppplication (x :-: _) = throwError $ ObjectNotApplicable x
 
 improperList :: MonadError EvalError m => DotList Term -> m Term
 improperList xs = throwError . NotAProperList $ DotList xs
 
-quotePredicates :: (MonadState env m, MonadError EvalError m) => Term -> m Term
+quotePredicates :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => Term -> m Term
 quotePredicates (List (p :-: e :-. Nil)) = do
   p' <- evalTerm p
   return $ List (Symbol "quote" :-: (List (p' :-: (e :-. Nil)) :-. Nil))
@@ -190,7 +191,7 @@ quotePredicates (List (p :-. Nil)) = do
   p' <- evalTerm p
   return $ List (Symbol "quote" :-: (DotList $ p' :-. Nil) :-. Nil)
 quotePredicates Nil = return Nil
-quotePredicates x = throwError IllFormedSyntax
+quotePredicates _ = throwError IllFormedSyntax
 
 unary :: DotList Term -> Arrity
 unary (x :-: _) = Unary x
@@ -208,6 +209,7 @@ arrity i name cont xs =
   else case i of
     1 -> cont . pure $ unary xs
     2 -> cont . pure $ binary xs
+    j -> throwError $ WrongArrity name j (length xs - 1) -- Verify this  error message makes sense
 
 --- | Arithmetic
 
@@ -274,58 +276,82 @@ less terms = return . Boolean $ f terms
 --- | McCarthy Primitives
 
 -- | TODO: cond needs to be simplified drastically
-cond :: (MonadState env m, MonadError EvalError m) => DotList Term -> m Term
+cond :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => DotList Term -> m Term
 cond (x :-. Nil) =
   case x of
     List (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else throwError UnspecifiedReturn
-    List (Number n  :-: e :-. Nil)  -> evalTerm e
+    List (Number _  :-: e :-. Nil)  -> evalTerm e
     DotList (pe :-. Nil) -> return pe
-    x -> throwError IllFormedSyntax
+    _ -> throwError IllFormedSyntax
 cond (x :-: xs) =
   case x of
     List (Boolean pe :-. Nil)       -> if pe then return (Boolean pe) else cond xs
     List (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else cond xs
-    List (Number n  :-: e :-. Nil) -> evalTerm e
+    List (Number _  :-: e :-. Nil) -> evalTerm e
     List _ -> throwError IllFormedSyntax
     DotList (Boolean p  :-: e :-. Nil) -> if p then evalTerm e else cond xs
     DotList (Boolean pe :-. Nil)       -> if pe then return (Boolean pe) else cond xs
     Nil -> throwError UnspecifiedReturn
-    x -> throwError IllFormedSyntax
+    _ -> throwError IllFormedSyntax
 cond _ = throwError IllFormedSyntax
 
 eq :: MonadError EvalError m => m Arrity -> m Term
 eq terms = terms >>= \case
   Binary t1 t2 -> return . Boolean $ t1 == t2
+  Unary _ -> undefined
 
 cons :: MonadError EvalError m => m Arrity -> m Term
 cons terms = terms >>= \case
   (Binary x (List xs) )   -> return $ List (x :-: xs)
   (Binary x (DotList xs)) -> return $ DotList (x :-: xs)
   (Binary x y)            -> return $ DotList (x :-. y)
+  Unary _ -> undefined
 
 car :: MonadError EvalError m => m Arrity -> m Term
 car term = term >>= \case
-    Unary (List (x :-: xs))   -> return x
-    Unary (DotList (x :-. y)) -> return x
-    Unary term                -> throwError $ TypeError "car" term
+  Unary (List (x :-: _))    -> return x
+  Unary (DotList (x :-. _)) -> return x
+  Unary term'               -> throwError $ TypeError "car" term'
+  Binary _ _ -> undefined
        
 cdr :: MonadError EvalError m => m Arrity -> m Term
 cdr term = term >>= \case
-    Unary (DotList (x :-. y)) -> return y
-    Unary (List (x :-: xs))   -> return . List $ xs
-    Unary term                -> throwError $ TypeError "cdr" term
+  Unary (DotList (_ :-. y)) -> return y
+  Unary (List (_ :-: xs))   -> return . List $ xs
+  Unary term'               -> throwError $ TypeError "cdr" term'
+  Binary _ _ -> undefined
 
 atom :: MonadError EvalError m => m Arrity -> m Term
 atom mterm = mterm >>= \case
   Unary (DotList xs) -> throwError $ NotAProperList (DotList xs)
   Unary (List _)     -> return     $ Boolean False
   Unary _            -> return     $ Boolean True
+  Binary _ _ -> undefined
 
 lambda :: MonadError EvalError m => m Arrity -> m Term
 lambda mterm = mterm >>= \case
   Binary args body -> undefined
+  Unary _ -> undefined
   
+--- | Delete this if you can't find a use outside of getVar
+isBound :: Map String Term -> String -> Bool
+isBound env = isJust . flip M.lookup env
 
+getVar :: (MonadEnv m, MonadError EvalError m) => String -> m Term
+getVar = readVar
+
+setVar :: (MonadEnv m, MonadError EvalError m) => String -> Term -> m Term
+setVar str term = readVar str >>= \_ -> putVar str term
+
+bindVars :: (MonadEnv m, MonadError EvalEnv m) => [(String, Term)] -> m EvalEnv
+bindVars xs = mapM_ (uncurry putVar) xs *> get
+
+define :: (MonadEnv m, MonadError EvalError m) => m Arrity -> m Term
+define mterm = mterm >>= \case
+  Binary (Symbol var) val -> putVar var val
+  _ -> throwError IllFormedSyntax
+
+  
 ------------
 --- REPL ---
 ------------
@@ -381,7 +407,10 @@ lambda mterm = mterm >>= \case
 --- LispM ---
 -------------
 
-newtype EvalEnv = EvalEnv [()]
+newtype EvalEnv = EvalEnv (Map String Term)
+
+evalEnv :: EvalEnv
+evalEnv = EvalEnv M.empty
 
 newtype LispM env a = LispM { unLispM :: ExceptT EvalError (State env) a}
   deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError)
@@ -391,7 +420,7 @@ runLispM env = flip evalState env . runExceptT . unLispM
 
 eval :: Result Term -> LispM EvalEnv Term
 eval (Success term) = evalTerm term
-eval (Failure err)  = throwError IllFormedSyntax
+eval (Failure _)  = throwError IllFormedSyntax
 
 ------------
 --- AppM ---
@@ -407,9 +436,8 @@ runAppM env (AppM m) = runReaderT m env
 
 interpret :: AppM IO (Either EvalError Term)
 interpret = do
-  source <- asks _source
-  let evalEnv = EvalEnv []
-  let lispExpression = parse source
+  sourceCode <- asks _source
+  let lispExpression = parse sourceCode
   return . runLispM evalEnv $ eval lispExpression
   
 
@@ -428,3 +456,11 @@ logNormal = logMessage Normal
 
 logDebug :: MonadLog m => Text -> m ()
 logDebug = logMessage Debug
+
+class (MonadState EvalEnv m, MonadError EvalError m) => MonadEnv m where
+  readVar :: String -> m Term
+  putVar :: String -> Term -> m Term
+
+instance MonadEnv (LispM EvalEnv) where
+  readVar str = get >>= \(EvalEnv env) -> maybe (throwError UnboundVariable) return (M.lookup str env)
+  putVar str term = (get >>= \(EvalEnv env) -> put . EvalEnv $ M.insert str term env) >> return term

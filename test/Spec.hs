@@ -1,11 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Data.Functor.Compose
-import Control.Monad.Except (runExcept)
-import Control.Applicative
-import Data.Function (on)
-import Data.Text (Text(..))
+import Data.Text (Text)
 import Text.Trifecta
 
 -- | TODO: Add QuickCheck
@@ -35,7 +31,7 @@ specParseFails s =
 specEvalYields :: Text -> Either EvalError Term -> SpecWith ()
 specEvalYields term eterm =
     it ("evaluates " ++ show term ++ " as " ++ show eterm) $
-        (runLispM (EvalEnv []) . eval) (parse term) `shouldBe` eterm
+        (runLispM evalEnv . eval) (parse term) `shouldBe` eterm
 
 
 testCases :: [(Text, Term, Either EvalError Term)]
@@ -233,7 +229,7 @@ testCases =
 -- | TODO: Add unhappy parses
 checkParse :: SpecWith ()
 checkParse = describe "Test Parser" $
-    mapM_ (uncurry specParseYields) $ (\(str, parse, _) -> (str, parse)) <$> testCases
+    mapM_ (uncurry specParseYields) $ (\(str, ast, _) -> (str, ast)) <$> testCases
 
 checkEval :: SpecWith ()
 checkEval = describe "Test Evaluation" $

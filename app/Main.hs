@@ -4,13 +4,11 @@ module Main where
 import Lib
 
 import qualified Data.ByteString as BS
-import Data.Text (Text(..), pack, unpack)
+import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding
 import Data.Text.Encoding.Error
 
-import System.Console.Haskeline (runInputT, defaultSettings)
 import System.Environment
-import System.IO
 
 readFilePath :: Text -> IO Text
 readFilePath = fmap (decodeUtf8With lenientDecode) . BS.readFile . unpack

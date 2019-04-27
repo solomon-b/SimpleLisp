@@ -12,7 +12,6 @@ stack exec simpleLisp (add 1 (add 2 3))
 - Implement primitive functions:
   + define
   + lambda
-  + cond
   + label
 - Use State or Reader for user defined functions
 - Improve errors
