@@ -54,7 +54,7 @@ testCases =
     )
   , ( "add"
     , Symbol "add"
-    , Right $ Symbol "add"
+    , Left IllFormedSyntax
     )
   , ( "()"
     , Nil

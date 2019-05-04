@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -10,9 +12,10 @@ module Lib where
 import Data.Functor
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import Data.Maybe (isJust)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+
+import Data.Monoid
 
 import Control.Monad
 import Control.Monad.Except
@@ -146,7 +149,7 @@ parse = parseByteString parseTerm mempty . encodeUtf8
 -- cond   ✓
 -- lambda
 -- label
--- let
+-- define ✓
 -- fix :D
 -- various arithmetic
 -- various logic
@@ -156,19 +159,36 @@ evalTerm :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => Term -
 evalTerm (List (Symbol "add"    :-. Nil))  = return $ Number 0            -- special case for no arrity
 evalTerm (List (Symbol "cond"   :-. Nil))  = throwError UnspecifiedReturn -- special case for no arrity
 evalTerm (List (Symbol "quote"  :-: value :-. Nil)) = return value
-evalTerm (List (Symbol "atom?"  :-: args)) = arrity 1 "atom?" atom    =<< traverse evalTerm args
-evalTerm (List (Symbol "cons"   :-: args)) = arrity 2 "cons" cons     =<< traverse evalTerm args
-evalTerm (List (Symbol "car"    :-: args)) = arrity 1 "car" car       =<< traverse evalTerm args
-evalTerm (List (Symbol "eq?"    :-: args)) = arrity 2 "eq?" eq        =<< traverse evalTerm args
-evalTerm (List (Symbol "cdr"    :-: args)) = arrity 1 "cdr" cdr       =<< traverse evalTerm args
-evalTerm (List (Symbol "define" :-: args)) = evalTerm =<< arrity 2 "define" define args
-evalTerm (List (Symbol "cond"   :-: args)) = cond                     =<< traverse (evalTerm <=< quotePredicates) args
-evalTerm (List (Symbol "add"    :-: args)) = add                      =<< traverse (asInteger <=< evalTerm) args
-evalTerm (List xs)                         = badAppplication          =<< traverse evalTerm xs
-evalTerm (DotList xs)                      = improperList             =<< traverse evalTerm xs
-evalTerm (Symbol str) = evalTerm =<< getVar str 
+evalTerm (List (Symbol "atom?"  :-: args)) = atom     =<< traverse evalTerm args
+evalTerm (List (Symbol "cons"   :-: args)) = cons     =<< traverse evalTerm args
+evalTerm (List (Symbol "car"    :-: args)) = car      =<< traverse evalTerm args
+evalTerm (List (Symbol "eq?"    :-: args)) = eq       =<< traverse evalTerm args
+evalTerm (List (Symbol "cdr"    :-: args)) = cdr      =<< traverse evalTerm args
+evalTerm (List (Symbol "cond"   :-: args)) = cond     =<< traverse (evalTerm <=< quotePredicates) args
+evalTerm (List (Symbol "add"    :-: args)) = add      =<< traverse (asInteger <=< evalTerm) args
+evalTerm (List (Symbol "define" :-: args)) = define args
+evalTerm (List xs)                         = badApp   =<< traverse evalTerm xs
+evalTerm (DotList xs)                      = improperList =<< traverse evalTerm xs
+evalTerm (Symbol "add") = throwError IllFormedSyntax
+evalTerm (Symbol str) = getVar str 
 evalTerm expr = return expr
 
+primitives :: (MonadEnv m, MonadError EvalError m) => [(String, DotList Term -> m Term)]
+primitives =
+  [ ("atom?", atom)
+  , ("cons", cons)
+  , ("car", car)
+  , ("eq?", eq)
+  , ("cdr", cdr)
+  , ("define", define)
+  , ("cond", cond)
+  , ("add", add)
+  ]
+
+
+  
+getPrimitive :: (MonadEnv m, MonadError EvalError m) => String -> m (DotList Term -> m Term)
+getPrimitive str = maybe (throwError IllFormedSyntax) return $ lookup str primitives
 
 --- | Error Handling
 asInteger :: MonadError EvalError m => Term -> m Term
@@ -176,9 +196,9 @@ asInteger (Number n) = return $ Number n
 asInteger Nil = return Nil
 asInteger term = throwError $ TypeError "asInteger" term
 
-badAppplication :: MonadError EvalError m => DotList Term -> m Term
-badAppplication (x :-. _) = throwError $ ObjectNotApplicable x
-badAppplication (x :-: _) = throwError $ ObjectNotApplicable x
+badApp :: MonadError EvalError m => DotList Term -> m Term
+badApp (x :-. _) = throwError $ ObjectNotApplicable x
+badApp (x :-: _) = throwError $ ObjectNotApplicable x
 
 improperList :: MonadError EvalError m => DotList Term -> m Term
 improperList xs = throwError . NotAProperList $ DotList xs
@@ -295,47 +315,54 @@ cond (x :-: xs) =
     _ -> throwError IllFormedSyntax
 cond _ = throwError IllFormedSyntax
 
-eq :: MonadError EvalError m => m Arrity -> m Term
-eq terms = terms >>= \case
-  Binary t1 t2 -> return . Boolean $ t1 == t2
-  Unary _ -> undefined
+eq :: MonadError EvalError m => DotList Term -> m Term
+eq = arrity 2 "eq?" f
+  where
+    f mterm = mterm >>= \case
+      Binary t1 t2 -> return . Boolean $ t1 == t2
+      Unary _ -> undefined
 
-cons :: MonadError EvalError m => m Arrity -> m Term
-cons terms = terms >>= \case
-  (Binary x (List xs) )   -> return $ List (x :-: xs)
-  (Binary x (DotList xs)) -> return $ DotList (x :-: xs)
-  (Binary x y)            -> return $ DotList (x :-. y)
-  Unary _ -> undefined
+cons :: MonadError EvalError m => DotList Term -> m Term
+cons = arrity 2 "cons" f
+  where
+    f terms = terms >>= \case
+      (Binary x (List xs) )   -> return $ List (x :-: xs)
+      (Binary x (DotList xs)) -> return $ DotList (x :-: xs)
+      (Binary x y)            -> return $ DotList (x :-. y)
+      Unary _ -> undefined
 
-car :: MonadError EvalError m => m Arrity -> m Term
-car term = term >>= \case
-  Unary (List (x :-: _))    -> return x
-  Unary (DotList (x :-. _)) -> return x
-  Unary term'               -> throwError $ TypeError "car" term'
-  Binary _ _ -> undefined
+car :: MonadError EvalError m => DotList Term -> m Term
+car = arrity 1 "car" f
+  where
+    f term = term >>= \case
+      Unary (List (x :-: _))    -> return x
+      Unary (DotList (x :-. _)) -> return x
+      Unary term'               -> throwError $ TypeError "car" term'
+      Binary _ _ -> undefined
        
-cdr :: MonadError EvalError m => m Arrity -> m Term
-cdr term = term >>= \case
-  Unary (DotList (_ :-. y)) -> return y
-  Unary (List (_ :-: xs))   -> return . List $ xs
-  Unary term'               -> throwError $ TypeError "cdr" term'
-  Binary _ _ -> undefined
+cdr :: MonadError EvalError m => DotList Term -> m Term
+cdr = arrity 1 "cdr" f
+  where
+    f term = term >>= \case
+      Unary (DotList (_ :-. y)) -> return y
+      Unary (List (_ :-: xs))   -> return . List $ xs
+      Unary term'               -> throwError $ TypeError "cdr" term'
+      Binary _ _ -> undefined
 
-atom :: MonadError EvalError m => m Arrity -> m Term
-atom mterm = mterm >>= \case
-  Unary (DotList xs) -> throwError $ NotAProperList (DotList xs)
-  Unary (List _)     -> return     $ Boolean False
-  Unary _            -> return     $ Boolean True
-  Binary _ _ -> undefined
+atom :: MonadError EvalError m => DotList Term -> m Term
+atom = arrity 1 "atom?" f
+  where
+    f mterm =
+      mterm >>= \case
+        Unary (DotList xs) -> throwError $ NotAProperList (DotList xs)
+        Unary (List _)     -> return     $ Boolean False
+        Unary _            -> return     $ Boolean True
+        Binary _ _ -> undefined
 
 lambda :: MonadError EvalError m => m Arrity -> m Term
 lambda mterm = mterm >>= \case
   Binary args body -> undefined
   Unary _ -> undefined
-  
---- | Delete this if you can't find a use outside of getVar
-isBound :: Map String Term -> String -> Bool
-isBound env = isJust . flip M.lookup env
 
 getVar :: (MonadEnv m, MonadError EvalError m) => String -> m Term
 getVar = readVar
@@ -346,10 +373,12 @@ setVar str term = readVar str >>= \_ -> putVar str term
 bindVars :: (MonadEnv m, MonadError EvalEnv m) => [(String, Term)] -> m EvalEnv
 bindVars xs = mapM_ (uncurry putVar) xs *> get
 
-define :: (MonadEnv m, MonadError EvalError m) => m Arrity -> m Term
-define mterm = mterm >>= \case
-  Binary (Symbol var) val -> putVar var val
-  _ -> throwError IllFormedSyntax
+define :: (MonadEnv m, MonadError EvalError m) => DotList Term -> m Term
+define = arrity 2 "define" f
+  where
+    f mterm = mterm >>= \case
+      Binary (Symbol var) val -> putVar var val >>= evalTerm
+      _ -> throwError IllFormedSyntax
 
   
 ------------
@@ -462,5 +491,7 @@ class (MonadState EvalEnv m, MonadError EvalError m) => MonadEnv m where
   putVar :: String -> Term -> m Term
 
 instance MonadEnv (LispM EvalEnv) where
-  readVar str = get >>= \(EvalEnv env) -> maybe (throwError UnboundVariable) return (M.lookup str env)
+  readVar str = get >>= \(EvalEnv env) -> maybe (throwError UnboundVariable) return (M.lookup str env) >>= evalTerm
   putVar str term = (get >>= \(EvalEnv env) -> put . EvalEnv $ M.insert str term env) >> return term
+
+
