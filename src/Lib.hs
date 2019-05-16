@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -10,20 +11,20 @@
 module Lib where
 
 import Data.Functor
-import Data.Text (Text)
+import Data.Text (Text, pack)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 
-import Data.Monoid
-
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Applicative
 
 import Text.Trifecta
+import System.Console.Haskeline
 
 data DotList a = a :-: (DotList a) | a :-. a
   deriving (Functor, Foldable, Traversable, Eq)
@@ -49,6 +50,7 @@ data Term
   | DotList (DotList Term)
   | Nil
   | Error EvalError
+  | Func [String] (Maybe String) [Term]
   deriving Eq
 
 data Arrity = Unary Term | Binary Term Term
@@ -62,6 +64,11 @@ instance Show Term where
     show (DotList xs) = "(" ++ show xs ++ ")"
     show (Error e) = show e
     show Nil = "()"
+    show (Func args varargs _) =
+      "(lambda (" ++ unwords (map show args) ++
+      (case varargs of
+         Nothing -> ""
+         Just arg -> " . " ++ arg) ++ ") ...)"
 
 data ParseError = ParseError deriving Show
 
@@ -96,7 +103,11 @@ parseNumber :: Parser Term
 parseNumber = Number <$> integer
 
 parseSymbol :: Parser Term
-parseSymbol = (\x xs -> Symbol (x:xs)) <$> letter <*> many (alphaNum <|> char '?')
+parseSymbol = do
+  x <- letter <|> oneOf "?+"
+  xs <- many (alphaNum <|> oneOf "?+")
+  return $ Symbol (x:xs)
+--parseSymbol = (\x xs -> Symbol (x:xs)) <$> letter <*> many (alphaNum <|> char '?')
 
 parseString' :: Parser Term
 parseString' = String <$> between (char '"') (char '"') (some alphaNum)
@@ -108,7 +119,7 @@ parseQuote :: Parser Term
 parseQuote = (\x -> List (Symbol "quote" :-: x :-. Nil)) <$> (void (char '\'') *> parseTerm)
 
 parseScalars :: Parser Term
-parseScalars = parseQuote <|> parseNumber <|> parseString' <|> parseBool <|> parseSymbol 
+parseScalars = parseQuote <|> parseSymbol <|> parseNumber <|> parseString' <|> parseBool
 
 parseRegList :: Parser Term
 parseRegList = parens $ do
@@ -156,7 +167,7 @@ parse = parseByteString parseTerm mempty . encodeUtf8
 
 -- | Factor out the primitive function pattern matching into a global context object (ReaderT)
 evalTerm :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => Term -> m Term
-evalTerm (List (Symbol "add"    :-. Nil))  = return $ Number 0            -- special case for no arrity
+evalTerm (List (Symbol "+"    :-. Nil))  = return $ Number 0            -- special case for no arrity
 evalTerm (List (Symbol "cond"   :-. Nil))  = throwError UnspecifiedReturn -- special case for no arrity
 evalTerm (List (Symbol "quote"  :-: value :-. Nil)) = return value
 evalTerm (List (Symbol "atom?"  :-: args)) = atom     =<< traverse evalTerm args
@@ -164,8 +175,8 @@ evalTerm (List (Symbol "cons"   :-: args)) = cons     =<< traverse evalTerm args
 evalTerm (List (Symbol "car"    :-: args)) = car      =<< traverse evalTerm args
 evalTerm (List (Symbol "eq?"    :-: args)) = eq       =<< traverse evalTerm args
 evalTerm (List (Symbol "cdr"    :-: args)) = cdr      =<< traverse evalTerm args
-evalTerm (List (Symbol "cond"   :-: args)) = cond     =<< traverse (evalTerm <=< quotePredicates) args
-evalTerm (List (Symbol "add"    :-: args)) = add      =<< traverse (asInteger <=< evalTerm) args
+evalTerm (List (Symbol "cond"   :-: args)) = cond     =<< traverse (evalTerm  <=< quotePredicates) args
+evalTerm (List (Symbol "+"    :-: args))   = add      =<< traverse (asInteger <=< evalTerm)        args
 evalTerm (List (Symbol "define" :-: args)) = define args
 evalTerm (List xs)                         = badApp   =<< traverse evalTerm xs
 evalTerm (DotList xs)                      = improperList =<< traverse evalTerm xs
@@ -182,7 +193,7 @@ primitives =
   , ("cdr", cdr)
   , ("define", define)
   , ("cond", cond)
-  , ("add", add)
+  , ("+", add)
   ]
 
 
@@ -232,6 +243,7 @@ arrity i name cont xs =
     j -> throwError $ WrongArrity name j (length xs - 1) -- Verify this  error message makes sense
 
 --- | Arithmetic
+-- | TODO: Implement maths
 
 add :: MonadError EvalError m => DotList Term -> m Term
 add terms = return . Number $ f terms
@@ -359,6 +371,7 @@ atom = arrity 1 "atom?" f
         Unary _            -> return     $ Boolean True
         Binary _ _ -> undefined
 
+-- | TODO: Implement dat lambda
 lambda :: MonadError EvalError m => m Arrity -> m Term
 lambda mterm = mterm >>= \case
   Binary args body -> undefined
@@ -431,21 +444,38 @@ define = arrity 2 "define" f
 --  --print env'
 --  repl env'
 
+repl :: EvalEnv -> IO ()
+repl env = runInputT defaultSettings $ do
+  mstr <- getInputLine "> "
+  case mstr of
+    Just str -> do
+      let (res, env') = runLispM env . eval . parse $ pack str
+      liftIO $ print res
+      lift $ repl env'
+    Nothing -> lift $ repl env
 
 -------------
 --- LispM ---
 -------------
 
-newtype EvalEnv = EvalEnv (Map String Term)
+newtype EvalEnv = EvalEnv (Map String Term) deriving Show
 
 evalEnv :: EvalEnv
 evalEnv = EvalEnv M.empty
 
-newtype LispM env a = LispM { unLispM :: ExceptT EvalError (State env) a}
+newtype LispT env m a = LispT { unLispT :: ExceptT EvalError (StateT env m) a}
   deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError)
 
-runLispM :: EvalEnv -> LispM EvalEnv Term -> Either EvalError Term
-runLispM env = flip evalState env . runExceptT . unLispM 
+type LispM env = LispT env Identity
+
+runLispM :: EvalEnv -> LispM EvalEnv Term -> (Either EvalError Term, EvalEnv)
+runLispM env = flip runState env . runExceptT . unLispT
+
+evalLispM :: EvalEnv -> LispM EvalEnv Term -> Either EvalError Term
+evalLispM env = flip evalState env . runExceptT . unLispT
+
+execLispM :: EvalEnv -> LispM EvalEnv Term -> EvalEnv
+execLispM env = flip execState env . runExceptT . unLispT
 
 eval :: Result Term -> LispM EvalEnv Term
 eval (Success term) = evalTerm term
@@ -467,14 +497,16 @@ interpret :: AppM IO (Either EvalError Term)
 interpret = do
   sourceCode <- asks _source
   let lispExpression = parse sourceCode
-  return . runLispM evalEnv $ eval lispExpression
+  return . evalLispM evalEnv $ eval lispExpression
   
+
 
 --------------------
 --- Capabilities ---
 --------------------
 -- How does a repl relate to these capabilities?
 
+-- | TODO: Implement logging
 data LogLevel = Normal | Debug
 
 class Monad m => MonadLog m where

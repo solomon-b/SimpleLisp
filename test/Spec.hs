@@ -31,7 +31,7 @@ specParseFails s =
 specEvalYields :: Text -> Either EvalError Term -> SpecWith ()
 specEvalYields term eterm =
     it ("evaluates " ++ show term ++ " as " ++ show eterm) $
-        (runLispM evalEnv . eval) (parse term) `shouldBe` eterm
+        (evalLispM evalEnv . eval) (parse term) `shouldBe` eterm
 
 
 testCases :: [(Text, Term, Either EvalError Term)]
