@@ -445,7 +445,16 @@ define = arrity 2 "define" f
 --  repl env'
 
 repl :: EvalEnv -> IO ()
-repl env = runInputT defaultSettings $ do
+repl env = runInputT defaultSettings . forever $ do
+  mstr <- getInputLine "> "
+  case mstr of
+    Just str -> do
+      let (res, env') = runLispM env . eval . parse $ pack str
+      liftIO $ print res
+    Nothing -> lift $ repl env
+
+repl' :: EvalEnv -> IO ()
+repl' env = runInputT defaultSettings $ do
   mstr <- getInputLine "> "
   case mstr of
     Just str -> do
@@ -453,7 +462,7 @@ repl env = runInputT defaultSettings $ do
       liftIO $ print res
       lift $ repl env'
     Nothing -> lift $ repl env
-
+  
 -------------
 --- LispM ---
 -------------
@@ -465,6 +474,11 @@ evalEnv = EvalEnv M.empty
 
 newtype LispT env m a = LispT { unLispT :: ExceptT EvalError (StateT env m) a}
   deriving (Functor, Applicative, Monad, MonadState env, MonadError EvalError)
+
+instance MonadTrans (LispT env) where
+  lift :: Monad m => m a -> LispT env m a
+  lift = LispT . lift . lift
+  --lift ma = LispT . ExceptT . StateT $ \env -> (\a -> (Right a, env)) <$> ma
 
 type LispM env = LispT env Identity
 
@@ -480,6 +494,10 @@ execLispM env = flip execState env . runExceptT . unLispT
 eval :: Result Term -> LispM EvalEnv Term
 eval (Success term) = evalTerm term
 eval (Failure _)  = throwError IllFormedSyntax
+
+-- eval' :: Monad m => Result Term -> LispT EvalEnv m Term 
+-- eval' (Success term) = evalTerm term
+-- eval' (Failure _)  = throwError IllFormedSyntax
 
 ------------
 --- AppM ---
