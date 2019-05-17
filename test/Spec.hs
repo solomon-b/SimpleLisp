@@ -4,7 +4,7 @@ module Main where
 import Data.Text (Text)
 import Text.Trifecta
 
--- | TODO: Add QuickCheck
+-- | TODO: + QuickCheck
 import Test.Hspec
 
 import Lib
@@ -52,8 +52,8 @@ testCases =
     , String "Foobar"
     , Right $ String "Foobar"
     )
-  , ( "add"
-    , Symbol "add"
+  , ( "+"
+    , Symbol "+"
     , Left IllFormedSyntax
     )
   , ( "()"
@@ -93,13 +93,13 @@ testCases =
     )
   ]
   ++
-  -- add
-  [ ( "(add 1 2)"
-    , List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil)
+  -- +
+  [ ( "(+ 1 2)"
+    , List (Symbol "+" :-: Number 1 :-: Number 2 :-. Nil)
     , Right $ Number 3
     )
-  , ( "(add 1 (add 2 (add 3 4)))"
-    , List (Symbol "add" :-: Number 1 :-: List (Symbol "add" :-: Number 2 :-: List (Symbol "add" :-: Number 3 :-: Number 4 :-. Nil) :-. Nil) :-. Nil)
+  , ( "(+ 1 (+ 2 (+ 3 4)))"
+    , List (Symbol "+" :-: Number 1 :-: List (Symbol "+" :-: Number 2 :-: List (Symbol "+" :-: Number 3 :-: Number 4 :-. Nil) :-. Nil) :-. Nil)
     , Right $ Number 10
     )
   ]
@@ -135,8 +135,8 @@ testCases =
     , List (Symbol "eq?" :-: Number 1 :-: Number 2 :-. Nil)
     , Right $ Boolean False
     )
-  , ( "(eq? 3 (add 1 2))"
-    , List (Symbol "eq?" :-: Number 3 :-: List (Symbol "add" :-: Number 1 :-: Number 2 :-. Nil) :-. Nil)
+  , ( "(eq? 3 (+ 1 2))"
+    , List (Symbol "eq?" :-: Number 3 :-: List (Symbol "+" :-: Number 1 :-: Number 2 :-. Nil) :-. Nil)
     , Right $ Boolean True
     )
   ]
@@ -222,11 +222,11 @@ testCases =
   ]
   -- ++
   -- -- lambda
-  -- [ ( "(lambda x (add 1 2))"
+  -- [ ( "(lambda x (+ 1 2))"
   --   )
   -- ]
         
--- | TODO: Add unhappy parses
+-- | TODO: + unhappy parses
 checkParse :: SpecWith ()
 checkParse = describe "Test Parser" $
     mapM_ (uncurry specParseYields) $ (\(str, ast, _) -> (str, ast)) <$> testCases

@@ -56,10 +56,10 @@ data Term
 data Arrity = Unary Term | Binary Term Term
 
 instance Show Term where
-    show (Symbol str) = str
+    show (Symbol str) = "SYMBOL: " ++ str
     show (Number n) = show n
-    show (String str) = show str
-    show (Boolean bool) = show bool
+    show (String str) = "STRING: " ++ show str
+    show (Boolean bool) = "BOOL: " ++ show bool
     show (List xs) = "(" ++ show xs ++ ")"
     show (DotList xs) = "(" ++ show xs ++ ")"
     show (Error e) = show e
@@ -119,7 +119,7 @@ parseQuote :: Parser Term
 parseQuote = (\x -> List (Symbol "quote" :-: x :-. Nil)) <$> (void (char '\'') *> parseTerm)
 
 parseScalars :: Parser Term
-parseScalars = parseQuote <|> parseSymbol <|> parseNumber <|> parseString' <|> parseBool
+parseScalars = parseQuote <|> parseBool <|> parseSymbol <|> parseNumber <|> parseString' 
 
 parseRegList :: Parser Term
 parseRegList = parens $ do
@@ -180,7 +180,7 @@ evalTerm (List (Symbol "+"    :-: args))   = add      =<< traverse (asInteger <=
 evalTerm (List (Symbol "define" :-: args)) = define args
 evalTerm (List xs)                         = badApp   =<< traverse evalTerm xs
 evalTerm (DotList xs)                      = improperList =<< traverse evalTerm xs
-evalTerm (Symbol "add") = throwError IllFormedSyntax
+evalTerm (Symbol "+") = throwError IllFormedSyntax
 evalTerm (Symbol str) = getVar str 
 evalTerm expr = return expr
 
@@ -398,71 +398,18 @@ define = arrity 2 "define" f
 --- REPL ---
 ------------
 
---type Repl a = InputT IO a
-
--- repl = forever $ do
---   rawInput <- getInputLine "> "
---   case rawInput of
---     Nothing -> repl
---     Just input -> do
---        let parsedResult = parse input
---        let evalResult = execEval input
---        liftIO $ print evalResult
-
-
---class MonadIO m => MonadRepl m where
---  readRepl :: String -> m String
---
---class Monad m => MonadEval m where
---  eval :: Term -> m Term
-
---instance MonadEval (LispM env) where
---  eval term = evalTerm term `catchError` (return . Error)
-
-
---instance MonadRepl (LispM env) where
---  readRepl str = do
---    rawInput <- LispM . lift . lift $ getInputLine str
---    case rawInput of
---      Just input -> return input
---      Nothing -> return mempty
-
-
---repl :: Env' -> IO ()
---repl env = do
---  env' <- runLispM env $ do
---    -- Testing state:
---    Env' state <- get
---    --liftIO $ print state
---    put . Env' $ ():state 
---
---    rawInput <- readRepl "> "
---    p <- parse rawInput 
---    term <- eval p
---    liftIO $ print term
---    return term
---  --print env'
---  repl env'
-
 repl :: EvalEnv -> IO ()
-repl env = runInputT defaultSettings . forever $ do
-  mstr <- getInputLine "> "
-  case mstr of
-    Just str -> do
-      let (res, env') = runLispM env . eval . parse $ pack str
-      liftIO $ print res
-    Nothing -> lift $ repl env
+repl initialEnv = runInputT defaultSettings (loop initialEnv)
+  where loop env = do
+          mstr <- getInputLine "> "
+          case mstr of
+            Just str -> do
+              let (res, env') = runLispM env . eval . parse $ pack str
+              liftIO $ print res
+              loop env'
+            Nothing -> loop env
 
-repl' :: EvalEnv -> IO ()
-repl' env = runInputT defaultSettings $ do
-  mstr <- getInputLine "> "
-  case mstr of
-    Just str -> do
-      let (res, env') = runLispM env . eval . parse $ pack str
-      liftIO $ print res
-      lift $ repl env'
-    Nothing -> lift $ repl env
-  
+
 -------------
 --- LispM ---
 -------------
@@ -495,9 +442,6 @@ eval :: Result Term -> LispM EvalEnv Term
 eval (Success term) = evalTerm term
 eval (Failure _)  = throwError IllFormedSyntax
 
--- eval' :: Monad m => Result Term -> LispT EvalEnv m Term 
--- eval' (Success term) = evalTerm term
--- eval' (Failure _)  = throwError IllFormedSyntax
 
 ------------
 --- AppM ---
@@ -517,7 +461,6 @@ interpret = do
   let lispExpression = parse sourceCode
   return . evalLispM evalEnv $ eval lispExpression
   
-
 
 --------------------
 --- Capabilities ---
