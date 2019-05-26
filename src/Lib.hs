@@ -1,3 +1,6 @@
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
@@ -13,6 +16,7 @@ module Lib where
 import Data.Functor
 import Data.Text (Text, pack)
 import Data.Text.Encoding (encodeUtf8)
+import Data.Maybe (isJust)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 
@@ -29,6 +33,8 @@ import System.Console.Haskeline
 data DotList a = a :-: (DotList a) | a :-. a
   deriving (Functor, Foldable, Traversable, Eq)
 
+-- (a, Either a (DotList a))
+
 infixr 5 :-:
 infixr 5 :-.
 
@@ -41,6 +47,10 @@ listToDot [] = undefined
 listToDot [t, t'] = t :-. t'
 listToDot (t:ts) = t :-: listToDot ts
 
+data ArithOp = Add | Subtract | Multiply | Divide | ABS | Modulo | Signum | Negate
+data PredOp = And | Or | Any | All
+data PrimOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote
+
 data Term
   = Symbol String
   | Number Integer
@@ -51,6 +61,7 @@ data Term
   | Nil
   | Error EvalError
   | Func [String] (Maybe String) [Term]
+  -- | Prim Primitive
   deriving Eq
 
 data Arrity = Unary Term | Binary Term Term
@@ -92,7 +103,7 @@ instance Show EvalError where
   show UnspecifiedReturn = "Unspecified return value."
   show IllFormedSyntax = "Ill-formed syntax"
   show UnboundVariable = "Unbound Variable"
-
+  
 ----------------
 ---- Parser ----
 ----------------
@@ -165,41 +176,98 @@ parse = parseByteString parseTerm mempty . encodeUtf8
 -- various arithmetic
 -- various logic
 
+fromDotList :: DotList a -> (a, Either a (DotList a))
+fromDotList (x :-. y) = (x, Left y)
+fromDotList (x :-: y) = (x, Right y)
+
 -- | Factor out the primitive function pattern matching into a global context object (ReaderT)
 evalTerm :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => Term -> m Term
-evalTerm (List (Symbol "+"    :-. Nil))  = return $ Number 0            -- special case for no arrity
-evalTerm (List (Symbol "cond"   :-. Nil))  = throwError UnspecifiedReturn -- special case for no arrity
-evalTerm (List (Symbol "quote"  :-: value :-. Nil)) = return value
-evalTerm (List (Symbol "atom?"  :-: args)) = atom     =<< traverse evalTerm args
-evalTerm (List (Symbol "cons"   :-: args)) = cons     =<< traverse evalTerm args
-evalTerm (List (Symbol "car"    :-: args)) = car      =<< traverse evalTerm args
-evalTerm (List (Symbol "eq?"    :-: args)) = eq       =<< traverse evalTerm args
-evalTerm (List (Symbol "cdr"    :-: args)) = cdr      =<< traverse evalTerm args
-evalTerm (List (Symbol "cond"   :-: args)) = cond     =<< traverse (evalTerm  <=< quotePredicates) args
-evalTerm (List (Symbol "+"    :-: args))   = add      =<< traverse (asInteger <=< evalTerm)        args
-evalTerm (List (Symbol "define" :-: args)) = define args
-evalTerm (List xs)                         = badApp   =<< traverse evalTerm xs
-evalTerm (DotList xs)                      = improperList =<< traverse evalTerm xs
 evalTerm (Symbol "+") = throwError IllFormedSyntax
-evalTerm (Symbol str) = getVar str 
-evalTerm expr = return expr
+evalTerm (Symbol str) = getVar str
+evalTerm (List xs) =
+  let (op, args) = fromDotList xs
+  in case parseArithOp op of
+        Just arithOp -> evalArithmetic (arithOp, args)
+        Nothing ->
+          case parsePrim op of
+            Just primOp -> evalPrim (primOp, args)
+            Nothing -> badApp =<< traverse evalTerm xs
+evalTerm (DotList xs) = improperList =<< traverse evalTerm xs
+evalTerm term = return term
 
-primitives :: (MonadEnv m, MonadError EvalError m) => [(String, DotList Term -> m Term)]
-primitives =
-  [ ("atom?", atom)
-  , ("cons", cons)
-  , ("car", car)
-  , ("eq?", eq)
-  , ("cdr", cdr)
-  , ("define", define)
-  , ("cond", cond)
-  , ("+", add)
-  ]
+parseArithOp :: Term -> Maybe ArithOp
+parseArithOp (Symbol str) =
+  case str of
+    "+"       -> Just Add
+    "-"       -> Just Subtract
+    "*"       -> Just Multiply
+    "/"       -> Just Divide
+    "%"       -> Just Modulo
+    "abs"     -> Just ABS
+    "signum"  -> Just Signum
+    "negate"  -> Just Negate
+    _         -> Nothing
+parseArithOp _ = Nothing
 
-
+parsePrim :: Term -> Maybe PrimOp
+parsePrim (Symbol str) =
+  case str of
+    "atom?"  -> Just Atom
+    "cons"   -> Just Cons
+    "car"    -> Just Car
+    "eq?"    -> Just Eq
+    "cdr"    -> Just Cdr
+    "define" -> Just Define
+    "cond"   -> Just Cond
+    "quote"  -> Just Quote
+    _        -> Nothing
+parsePrim _ =   Nothing
   
-getPrimitive :: (MonadEnv m, MonadError EvalError m) => String -> m (DotList Term -> m Term)
-getPrimitive str = maybe (throwError IllFormedSyntax) return $ lookup str primitives
+evalPrim :: (MonadEnv m, MonadError EvalError m) => (PrimOp, Either Term (DotList Term)) -> m Term
+evalPrim (op, args) =
+  case op of
+    Atom   -> f atom
+    Cons   -> f cons
+    Car    -> f car
+    Eq     -> f eq
+    Cdr    -> f cdr
+    Define -> h define
+    Cond   -> g cond
+    Quote  -> h quote 
+  where f op' =
+          case args of
+            Left _ -> throwError IllFormedSyntax
+            Right args' -> op' =<< traverse evalTerm args'
+        g op' =
+          case args of
+            Left _ -> throwError UnspecifiedReturn
+            Right args' -> op' =<< traverse (evalTerm <=< quotePredicates) args'
+        h op' = 
+          case args of
+            Left _ -> throwError IllFormedSyntax
+            Right args' -> op' args'
+
+evalArithmetic :: (MonadEnv m, MonadError EvalError m) => (ArithOp, Either Term (DotList Term)) -> m Term
+evalArithmetic (op, args) =
+  case op of
+    Add -> f add 0
+    Subtract -> g subtract'
+    Multiply -> f multiply 1
+    Divide -> g divide
+    ABS -> g abs'
+    Modulo -> g modulo
+    Signum -> g signum'
+    Negate -> g negate'
+  where f op' identity = 
+          case args of
+            Left Nil -> return $ Number identity
+            Left (Number i) -> return $ Number i
+            Left _  -> throwError IllFormedSyntax
+            Right args' -> op' =<< traverse (asInteger <=< evalTerm) args'
+        g op' =
+          case args of
+            Left _  -> throwError IllFormedSyntax
+            Right args' -> op' =<< traverse (asInteger <=< evalTerm) args'
 
 --- | Error Handling
 asInteger :: MonadError EvalError m => Term -> m Term
@@ -251,8 +319,8 @@ add terms = return . Number $ f terms
         f (Number x :-: xs)  = x + f xs
         f _                = 0
 
-subtract :: MonadError EvalError m => DotList Term -> m Term
-subtract terms = return . Number $ f terms
+subtract' :: MonadError EvalError m => DotList Term -> m Term
+subtract' terms = return . Number $ f terms
   where f = undefined
 
 multiply :: MonadError EvalError m => DotList Term -> m Term
@@ -263,20 +331,20 @@ divide :: MonadError EvalError m => DotList Term -> m Term
 divide terms = return . Number $ f terms
   where f = undefined
 
-abs :: MonadError EvalError m => DotList Term -> m Term
-abs terms = return . Number $ f terms
+abs' :: MonadError EvalError m => DotList Term -> m Term
+abs' terms = return . Number $ f terms
   where f = undefined
 
 modulo :: MonadError EvalError m => DotList Term -> m Term
 modulo terms = return . Number $ f terms
   where f = undefined
 
-negate :: MonadError EvalError m => DotList Term -> m Term
-negate terms = return . Number $ f terms
+negate' :: MonadError EvalError m => DotList Term -> m Term
+negate' terms = return . Number $ f terms
   where f = undefined
 
-signum :: MonadError EvalError m => DotList Term -> m Term
-signum terms = return . Number $ f terms
+signum' :: MonadError EvalError m => DotList Term -> m Term
+signum' terms = return . Number $ f terms
   where f = undefined
 
 --- | Logic
@@ -306,6 +374,14 @@ less terms = return . Boolean $ f terms
   where f = undefined
 
 --- | McCarthy Primitives
+
+quote :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => DotList Term -> m Term
+quote = arrity 1 "quote?" f
+  where
+    f mterm =
+      mterm >>= \case
+        Unary xs -> return xs
+        Binary _ _ -> undefined
 
 -- | TODO: cond needs to be simplified drastically
 cond :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => DotList Term -> m Term
@@ -406,6 +482,7 @@ repl initialEnv = runInputT defaultSettings (loop initialEnv)
             Just str -> do
               let (res, env') = runLispM env . eval . parse $ pack str
               liftIO $ print res
+              --liftIO $ print env'
               loop env'
             Nothing -> loop env
 
@@ -486,5 +563,3 @@ class (MonadState EvalEnv m, MonadError EvalError m) => MonadEnv m where
 instance MonadEnv (LispM EvalEnv) where
   readVar str = get >>= \(EvalEnv env) -> maybe (throwError UnboundVariable) return (M.lookup str env) >>= evalTerm
   putVar str term = (get >>= \(EvalEnv env) -> put . EvalEnv $ M.insert str term env) >> return term
-
-
