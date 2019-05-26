@@ -1,9 +1,4 @@
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -115,8 +110,8 @@ parseNumber = Number <$> integer
 
 parseSymbol :: Parser Term
 parseSymbol = do
-  x <- letter <|> oneOf "?+"
-  xs <- many (alphaNum <|> oneOf "?+")
+  x <- letter <|> oneOf "?+*/%"
+  xs <- many (alphaNum <|> oneOf "?+*/%")
   return $ Symbol (x:xs)
 --parseSymbol = (\x xs -> Symbol (x:xs)) <$> letter <*> many (alphaNum <|> char '?')
 
@@ -191,7 +186,7 @@ evalTerm (List xs) =
         Nothing ->
           case parsePrim op of
             Just primOp -> evalPrim (primOp, args)
-            Nothing -> badApp =<< traverse evalTerm xs
+            Nothing     -> badApp =<< traverse evalTerm xs
 evalTerm (DotList xs) = improperList =<< traverse evalTerm xs
 evalTerm term = return term
 
@@ -250,14 +245,14 @@ evalPrim (op, args) =
 evalArithmetic :: (MonadEnv m, MonadError EvalError m) => (ArithOp, Either Term (DotList Term)) -> m Term
 evalArithmetic (op, args) =
   case op of
-    Add -> f add 0
+    Add      -> f add 0
     Subtract -> g subtract'
     Multiply -> f multiply 1
-    Divide -> g divide
-    ABS -> g abs'
-    Modulo -> g modulo
-    Signum -> g signum'
-    Negate -> g negate'
+    Divide   -> g divide
+    ABS      -> g abs'
+    Modulo   -> g modulo
+    Signum   -> g signum'
+    Negate   -> g negate'
   where f op' identity = 
           case args of
             Left Nil -> return $ Number identity
@@ -325,53 +320,104 @@ subtract' terms = return . Number $ f terms
 
 multiply :: MonadError EvalError m => DotList Term -> m Term
 multiply terms = return . Number $ f terms
-  where f = undefined
+  where f (Number x :-. Nil) = x
+        f (Number x :-: xs)  = x * f xs
+        f _                = 1
 
 divide :: MonadError EvalError m => DotList Term -> m Term
-divide terms = return . Number $ f terms
-  where f = undefined
+divide = arrity 2 "/" f
+  where
+    f mterm =
+      mterm >>= \case
+        Unary _ -> undefined
+        Binary (Number x) (Number y) -> return . Number $ x `div` y
+        Binary _ _ -> undefined
 
 abs' :: MonadError EvalError m => DotList Term -> m Term
-abs' terms = return . Number $ f terms
-  where f = undefined
+abs' = arrity 1 "abs" f
+  where
+    f mterm =
+      mterm >>= \case
+        Unary (Number x) -> return . Number $ abs x
+        Unary _ -> undefined
+        Binary _ _ -> undefined
 
 modulo :: MonadError EvalError m => DotList Term -> m Term
-modulo terms = return . Number $ f terms
-  where f = undefined
+modulo = arrity 2 "%" f
+  where
+    f mterm =
+      mterm >>= \case
+        Binary (Number x) (Number y) -> return . Number $ x `mod` y
+        Binary _ _ -> undefined
+        Unary _ -> undefined
 
 negate' :: MonadError EvalError m => DotList Term -> m Term
-negate' terms = return . Number $ f terms
-  where f = undefined
+negate' = arrity 1 "negate" f
+  where
+    f mterm =
+      mterm >>= \case
+        Unary (Number x) -> return . Number $ negate x
+        Unary _ -> undefined
+        Binary _ _ -> undefined
 
 signum' :: MonadError EvalError m => DotList Term -> m Term
-signum' terms = return . Number $ f terms
-  where f = undefined
+signum' = arrity 1 "signum" f
+  where
+    f mterm =
+      mterm >>= \case
+        Unary (Number x) -> return . Number $ signum x
+        Unary _ -> undefined
+        Binary _ _ -> undefined
 
 --- | Logic
 and :: MonadError EvalError m => DotList Term -> m Term
-and terms = return . Boolean $ f terms
-  where f = undefined
+and = arrity 2 "&&" f
+  where
+    f mterm =
+      mterm >>= \case
+        Binary (Boolean p) (Boolean q) -> return . Boolean $ p && q
+        Binary _ _ -> undefined
+        Unary _ -> undefined
 
 
 or :: MonadError EvalError m => DotList Term -> m Term
-or terms = return . Boolean $ f terms
-  where f = undefined
+or = arrity 2 "||" f
+  where
+    f mterm =
+      mterm >>= \case
+        Binary (Boolean p) (Boolean q) -> return . Boolean $ p || q
+        Binary _ _ -> undefined
+        Unary _ -> undefined
 
 any :: MonadError EvalError m => DotList Term -> m Term
 any terms = return . Boolean $ f terms
-  where f = undefined
+  where f (Boolean x :-. Nil) = x
+        f (Boolean x :-: xs)  = x || f xs
+        f _                = False
 
 all :: MonadError EvalError m => DotList Term -> m Term
 all terms = return . Boolean $ f terms
-  where f = undefined
+  where f (Boolean x :-. Nil) = x
+        f (Boolean x :-: xs)  = x && f xs
+        f _                = True
 
 greater :: MonadError EvalError m => DotList Term -> m Term
-greater terms = return . Boolean $ f terms
-  where f = undefined
+greater = arrity 2 ">" f
+  where
+    f mterm =
+      mterm >>= \case
+        Binary (Number x) (Number y) -> return . Boolean $ x > y
+        Binary _ _ -> undefined
+        Unary _ -> undefined
 
 less :: MonadError EvalError m => DotList Term -> m Term
-less terms = return . Boolean $ f terms
-  where f = undefined
+less = arrity 2 "<" f
+  where
+    f mterm =
+      mterm >>= \case
+        Binary (Number x) (Number y) -> return . Boolean $ x < y
+        Binary _ _ -> undefined
+        Unary _ -> undefined
 
 --- | McCarthy Primitives
 
