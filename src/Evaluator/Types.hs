@@ -57,10 +57,10 @@ data Term
   deriving Eq
 
 instance Show Term where
-    show (Symbol str) = "SYMBOL: " ++ str
+    show (Symbol str) = str
     show (Number n) = show n
-    show (String str) = "STRING: " ++ show str
-    show (Boolean bool) = "BOOL: " ++ show bool
+    show (String str) = show str
+    show (Boolean bool) = show bool
     show (List xs) = "(" ++ show xs ++ ")"
     show (DotList xs) = "(" ++ show xs ++ ")"
     show (Error e) = show e
