@@ -16,6 +16,7 @@ import System.Environment
 import Evaluator.Types
 import Evaluator
 import Parser
+import Repl
  
 ------------
 --- AppM ---
@@ -43,21 +44,28 @@ interpret = do
 readFilePath :: Text -> IO Text
 readFilePath = fmap (decodeUtf8With lenientDecode) . BS.readFile . unpack
 
-readArgs :: IO [Text]
-readArgs = (fmap . fmap) pack getArgs
+readArgs :: IO (Maybe [Text])
+readArgs = do
+  args <- (fmap . fmap) pack getArgs
+  case args of
+    [] -> return Nothing
+    xs -> return $ Just xs
 
 main :: IO ()
 main = do
-  [mode, arg] <- readArgs
-  case mode of
-    "-o" -> do
-      contents <- readFilePath arg
-      let env = Env contents Normal
-      result <- runAppM env interpret
-      print result
-    "-e" -> do
-      let env = Env arg Normal
-      result <- runAppM env interpret
-      print result
-    "-i" -> undefined 
-    _ -> undefined
+  args <- readArgs
+  case args of
+    Just [mode, arg] -> 
+      case mode of
+        "-o" -> do
+          contents <- readFilePath arg
+          let env = Env contents Normal
+          result <- runAppM env interpret
+          print result
+        "-e" -> do
+          let env = Env arg Normal
+          result <- runAppM env interpret
+          print result
+        "-i" -> repl evalEnv
+        _ -> repl evalEnv
+    _ -> repl evalEnv
