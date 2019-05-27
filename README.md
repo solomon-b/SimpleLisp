@@ -1,21 +1,25 @@
 # simpleLisp
 
-A small Lisp implementation based on John McCarthy's 1960 paper `Recursive Functions of Symbolic Expressions
+A small Lisp implementation inspired by John McCarthy's 1960 paper `Recursive Functions of Symbolic Expressions
 and Their Computation by Machine, Part I`
 
 ## How to use
 ```
-stack exec simpleLisp (add 1 (add 2 3))
-````
+# Interactive Repl
+simpleLisp -i
+
+# Run a file from disk
+simpleLisp -o /path/to/lisp/script
+
+# Interpret a lisp expression
+simpleLisp -e "Some quoted lisp expression"
+```
 
 ## TODO
-- Implement primitive functions:
-  + define
+- Implement McCarthy's primitive functions:
   + lambda
   + label
-- Use State or Reader for user defined functions
-- Improve errors
+- Implement `let` using ReaderT
 - Testing
   + QuickCheck Arbitary Instance
   + Test parsing by generating random ASTs and parse their show value
-- Replace Term with a GADT and Existentials
