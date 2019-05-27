@@ -8,6 +8,9 @@ import Text.Trifecta
 import Test.Hspec
 
 import Lib
+import Evaluator
+import Evaluator.Types
+import Parser
 
 
 yields :: Eq a => a -> Result a -> Bool

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Evaluator.Types (LogLevel(..))
 import Lib
 
 import qualified Data.ByteString as BS
