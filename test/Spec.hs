@@ -7,7 +7,6 @@ import Text.Trifecta
 -- | TODO: + QuickCheck
 import Test.Hspec
 
-import Lib
 import Evaluator
 import Evaluator.Types
 import Parser
