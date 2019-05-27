@@ -105,7 +105,9 @@ define :: (MonadEnv m, MonadError EvalError m) => (Term -> m Term) -> DotList Te
 define f = arrity 2 "define" g
   where
     g mterm = mterm >>= \case
-      Binary (Symbol var) val -> putVar var val >>= f
+      Binary (Symbol var) val -> do
+        val' <- f val
+        putVar var val'
       _ -> throwError IllFormedSyntax
 
   
