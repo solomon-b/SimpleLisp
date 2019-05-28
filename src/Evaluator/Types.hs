@@ -160,7 +160,6 @@ execLispM :: EvalEnv -> LispM EvalEnv Term -> EvalEnv
 execLispM env = flip execState env . runExceptT . unLispT
 
 
-
 ----------------
 --- MonadEnv ---
 ----------------
