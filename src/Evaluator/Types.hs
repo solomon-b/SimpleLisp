@@ -42,6 +42,10 @@ fromDotList :: DotList a -> (a, Either a (DotList a))
 fromDotList (x :-. y) = (x, Left y)
 fromDotList (x :-: y) = (x, Right y)
 
+headDL :: DotList a -> a
+headDL (x :-. _) = x
+headDL (x :-: _) = x
+
 ------------
 --- Term ---
 ------------
@@ -55,7 +59,7 @@ data Term
   | DotList (DotList Term)
   | Nil
   | Error EvalError
-  | Func [String] (Maybe String) Term
+  | Func [String] Term
   -- | Prim Primitive
   deriving Eq
 
@@ -68,11 +72,7 @@ instance Show Term where
     show (DotList xs) = "(" ++ show xs ++ ")"
     show (Error e) = show e
     show Nil = "()"
-    show (Func args varargs body) =
-      "(lambda (" ++ unwords (map show args) ++
-      (case varargs of
-         Nothing -> " "
-         Just arg -> " . " ++ arg) ++ ")" ++ show body
+    show (Func args body) = "(lambda (" ++ unwords (map show args) ++ ")" ++ show body
 
 
 -----------------
