@@ -38,6 +38,9 @@ listToDot [] = undefined
 listToDot [t, t'] = t :-. t'
 listToDot (t:ts) = t :-: listToDot ts
 
+fromDotList :: DotList a -> (a, Either a (DotList a))
+fromDotList (x :-. y) = (x, Left y)
+fromDotList (x :-: y) = (x, Right y)
 
 ------------
 --- Term ---

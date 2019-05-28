@@ -7,22 +7,6 @@ import Control.Monad.State
 
 import Evaluator.Types
 
-data PrimOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote
-
-parsePrim :: Term -> Maybe PrimOp
-parsePrim (Symbol str) =
-  case str of
-    "atom?"  -> Just Atom
-    "cons"   -> Just Cons
-    "car"    -> Just Car
-    "eq?"    -> Just Eq
-    "cdr"    -> Just Cdr
-    "define" -> Just Define
-    "cond"   -> Just Cond
-    "quote"  -> Just Quote
-    _        -> Nothing
-parsePrim _ =   Nothing
-
 quote :: (MonadEnv m, MonadState EvalEnv m, MonadError EvalError m) => DotList Term -> m Term
 quote = arrity 1 "quote?" f
   where

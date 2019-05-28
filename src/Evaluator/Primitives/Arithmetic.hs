@@ -6,21 +6,6 @@ import Control.Monad.Except
 
 import Evaluator.Types
 
-data ArithOp = Add | Subtract | Multiply | Divide | ABS | Modulo | Signum | Negate
-
-parseArithOp :: Term -> Maybe ArithOp
-parseArithOp (Symbol str) =
-  case str of
-    "+"       -> Just Add
-    "-"       -> Just Subtract
-    "*"       -> Just Multiply
-    "/"       -> Just Divide
-    "%"       -> Just Modulo
-    "abs"     -> Just ABS
-    "signum"  -> Just Signum
-    "negate"  -> Just Negate
-    _         -> Nothing
-parseArithOp _ = Nothing
 
 add :: MonadError EvalError m => DotList Term -> m Term
 add terms = return . Number $ f terms
