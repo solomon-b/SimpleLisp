@@ -170,7 +170,7 @@ class (MonadState EvalEnv m, MonadError EvalError m) => MonadEnv m where
 
 instance MonadEnv (LispM EvalEnv) where
   readVar str =
-    get >>= \(EvalEnv env) -> maybe (throwError UnboundVariable) return (M.lookup str env) -- >>= evalTerm
+    get >>= \(EvalEnv env) -> maybe (throwError UnboundVariable) return (M.lookup str env)
   putVar str term = (get >>= \(EvalEnv env) -> put . EvalEnv $ M.insert str term env) >> return term
 
 
@@ -179,6 +179,7 @@ setVar str term = readVar str >>= \_ -> putVar str term
 
 bindVars :: MonadEnv m => [(String, Term)] -> m EvalEnv
 bindVars xs = mapM_ (uncurry putVar) xs *> get
+
 
 ----------------
 --- MonadLog ---

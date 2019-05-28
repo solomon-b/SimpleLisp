@@ -1,6 +1,7 @@
 module Repl where
 
 import Data.Text (pack)
+
 import System.Console.Haskeline
 
 import Control.Monad.IO.Class
