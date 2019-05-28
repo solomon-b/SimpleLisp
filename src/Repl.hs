@@ -10,8 +10,7 @@ import Evaluator.Types
 import Parser
 
 printResult :: (Show a, Show b) => Either a b -> IO ()
-printResult (Left a) = print a
-printResult (Right b) = print b
+printResult = either print print
 
 repl :: EvalEnv -> IO ()
 repl initialEnv = runInputT defaultSettings (loop initialEnv)

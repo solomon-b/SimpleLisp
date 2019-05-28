@@ -79,11 +79,27 @@ atom = arrity 1 "atom?" f
         Unary _            -> return     $ Boolean True
         Binary _ _ -> undefined
 
+
+reduceArgs :: DotList Term -> [Either EvalError String]
+reduceArgs (Symbol str :-: ts) = Right str : reduceArgs ts
+reduceArgs (_ :-: ts) = Left IllFormedSyntax : reduceArgs ts
+reduceArgs (Symbol s1 :-. Symbol s2) = [Right s1, Right s2]
+reduceArgs (_ :-. Symbol s1) = [Left IllFormedSyntax, Right s1]
+reduceArgs (Symbol s1 :-. Nil) = [Right s1]
+reduceArgs (Symbol s1 :-. _) = [Right s1, Left IllFormedSyntax]
+reduceArgs (_ :-. _) = [Left IllFormedSyntax]
+
 -- | TODO: Implement dat lambda
-lambda :: MonadError EvalError m => m Arrity -> m Term
-lambda mterm = mterm >>= \case
-  Binary args body -> undefined
-  Unary _ -> undefined
+lambda :: MonadError EvalError m => DotList Term -> m Term
+lambda = arrity 2 "lambda" f
+  where
+    f mterm = mterm >>= \case
+      Binary (List args) body -> do
+        case sequence $ reduceArgs args of
+          Left err -> throwError err
+          Right xs -> return $ Func xs Nothing body
+      Binary _ _ -> undefined -- throwError IllFormedSyntax
+      Unary _    -> undefined
 
 define :: (MonadEnv m, MonadError EvalError m) => (Term -> m Term) -> DotList Term -> m Term
 define f = arrity 2 "define" g

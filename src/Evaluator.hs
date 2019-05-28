@@ -44,7 +44,7 @@ evalTerm (List xs) =
 evalTerm (DotList xs) = improperList =<< traverse evalTerm xs
 evalTerm term = return term
 
-data McCarthyOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote
+data McCarthyOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote | Lambda
 data ArithOp = Add | Subtract | Multiply | Divide | ABS | Modulo | Signum | Negate
 data PredOp = And | Or | Any | All | Greater | Less
 
@@ -61,6 +61,7 @@ parsePrim (Symbol str) =
     "define" -> Just $ McCarthy Define
     "cond"   -> Just $ McCarthy Cond
     "quote"  -> Just $ McCarthy Quote
+    "lambda" -> Just $ McCarthy Lambda
     _        -> Nothing
 parsePrim _ =   Nothing
 
@@ -101,6 +102,7 @@ evalPrim (op, args) =
     Define -> h $ define evalTerm
     Cond   -> g $ cond evalTerm
     Quote  -> h quote 
+    Lambda -> h lambda
   where
     f op' =
       case args of

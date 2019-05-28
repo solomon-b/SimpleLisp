@@ -55,7 +55,7 @@ data Term
   | DotList (DotList Term)
   | Nil
   | Error EvalError
-  | Func [String] (Maybe String) [Term]
+  | Func [String] (Maybe String) Term
   -- | Prim Primitive
   deriving Eq
 
@@ -68,11 +68,11 @@ instance Show Term where
     show (DotList xs) = "(" ++ show xs ++ ")"
     show (Error e) = show e
     show Nil = "()"
-    show (Func args varargs _) =
+    show (Func args varargs body) =
       "(lambda (" ++ unwords (map show args) ++
       (case varargs of
-         Nothing -> ""
-         Just arg -> " . " ++ arg) ++ ") ...)"
+         Nothing -> " "
+         Just arg -> " . " ++ arg) ++ ")" ++ show body
 
 
 -----------------
