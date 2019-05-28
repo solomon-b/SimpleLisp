@@ -37,7 +37,7 @@ evalTerm (Symbol str) = readVar str
 evalTerm (List xs) =
   let (op, args) = first (\x -> parseArithOp x <|> parsePrim x <|> parsePredOp x) $ fromDotList xs
   in case op of
-    Just (Arith arithOp)   -> evalArithmetic (arithOp, args)
+    Just (Arith arithOp)   -> evalArith (arithOp, args)
     Just (McCarthy primOp) -> evalPrim (primOp, args)
     Just (Pred predOp)     -> evalPred (predOp, args)
     Nothing                -> badApp =<< traverse evalTerm xs
@@ -115,8 +115,8 @@ evalPrim (op, args) =
         Left _ -> throwError IllFormedSyntax
         Right args' -> op' args'
 
-evalArithmetic :: (MonadEnv m, MonadError EvalError m) => (ArithOp, Either Term (DotList Term)) -> m Term
-evalArithmetic (op, args) =
+evalArith :: (MonadEnv m, MonadError EvalError m) => (ArithOp, Either Term (DotList Term)) -> m Term
+evalArith (op, args) =
   case op of
     Add      -> f add 0
     Subtract -> g subtract'

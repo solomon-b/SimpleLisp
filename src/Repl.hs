@@ -9,6 +9,10 @@ import Evaluator
 import Evaluator.Types
 import Parser
 
+printResult :: (Show a, Show b) => Either a b -> IO ()
+printResult (Left a) = print a
+printResult (Right b) = print b
+
 repl :: EvalEnv -> IO ()
 repl initialEnv = runInputT defaultSettings (loop initialEnv)
   where loop env = do
@@ -16,7 +20,7 @@ repl initialEnv = runInputT defaultSettings (loop initialEnv)
           case mstr of
             Just str -> do
               let (res, env') = runLispM env . eval . parse $ pack str
-              liftIO $ print res
+              liftIO $ printResult res
               --liftIO $ print env'
               loop env'
             Nothing -> loop env
