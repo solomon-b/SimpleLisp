@@ -105,12 +105,30 @@ apply :: (MonadError EvalError m, MonadEnv m) => (Term -> m Term) -> DotList Ter
 apply f = arrity 2 "eval" g
   where
     g mterm = mterm >>= \case
-      Binary (Func vars body) (List xs) ->
-        let xVal = headDL xs
+      Binary (Func vars body) xVal ->
+        let --xVal = headDL xs
             xArg = head vars
         in f $ substituteValue xArg xVal body
       Binary _ _ -> undefined
       Unary _ -> undefined
+
+xs = (List $ Symbol "lambda" :-: (List $ Symbol "x" :-: Symbol "y" :-. Nil) :-: List (Symbol "+" :-: Symbol "x" :-: Symbol "y" :-. Nil):-. Nil) 
+
+type Value = Term
+type Lambda = Term
+
+substitute :: Value -> Lambda -> Term
+substitute val l1 =
+  let (x, l2) = popParam l1
+  in substituteValue x val l2
+
+popParam :: Lambda -> (String, Term)
+popParam (List (Symbol "lambda" :-: params :-: body :-. Nil)) =
+  case params of
+    List (Symbol x :-: xs)  -> (x, List $ Symbol "lambda" :-: List xs :-: body :-. Nil)
+    List (Symbol x :-. Nil) -> (x, body)
+    _ -> undefined
+popParam _ = undefined
 
 substituteValue :: String -> Term -> Term -> Term
 substituteValue arg term (List body) = List $ fmap f body
