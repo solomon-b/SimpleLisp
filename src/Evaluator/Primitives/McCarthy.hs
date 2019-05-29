@@ -112,8 +112,6 @@ apply f = arrity 2 "eval" g
       Binary _ _ -> undefined
       Unary _ -> undefined
 
-xs = (List $ Symbol "lambda" :-: (List $ Symbol "x" :-: Symbol "y" :-. Nil) :-: List (Symbol "+" :-: Symbol "x" :-: Symbol "y" :-. Nil):-. Nil) 
-
 type Value = Term
 type Lambda = Term
 
