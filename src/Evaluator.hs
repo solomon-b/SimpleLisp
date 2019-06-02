@@ -34,17 +34,18 @@ import Evaluator.Primitives.Predicate
 evalTerm :: (MonadEnv m, MonadState env m, MonadError EvalError m) => Term -> m Term
 evalTerm (Symbol "+") = throwError IllFormedSyntax
 evalTerm (Symbol str) = readVar str
+evalTerm (List []) = return $ List []
 evalTerm (List xs) =
-  let (op, args) = first (\x -> parseArithOp x <|> parsePrim x <|> parsePredOp x) $ fromDotList xs
+  let (op, args) = first (\x -> parseArithOp x <|> parsePrim x <|> parsePredOp x) (head xs, tail xs)
   in case op of
     Just (Arith arithOp)   -> evalArith (arithOp, args)
     Just (McCarthy primOp) -> evalPrim (primOp, args)
     Just (Pred predOp)     -> evalPred (predOp, args)
-    Nothing                -> badApp =<< traverse evalTerm xs
-evalTerm (DotList xs) = improperList =<< traverse evalTerm xs
+    Nothing                -> (badApp . List) =<< traverse evalTerm xs
+evalTerm (DotList (xs, x)) = improperList . DotList =<< traverse evalTerm (xs, x)
 evalTerm term = return term
 
-data McCarthyOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote | Lambda | Apply
+data McCarthyOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote | Lambda Term | Apply
 data ArithOp = Add | Subtract | Multiply | Divide | ABS | Modulo | Signum | Negate
 data PredOp = And | Or | Any | All | Greater | Less
 
@@ -61,9 +62,9 @@ parsePrim (Symbol str) =
     "define" -> Just $ McCarthy Define
     "cond"   -> Just $ McCarthy Cond
     "quote"  -> Just $ McCarthy Quote
-    "lambda" -> Just $ McCarthy Lambda
     "apply" ->  Just $ McCarthy Apply
     _        -> Nothing
+parsePrim term@(Func _ _) = Just . McCarthy $ Lambda term
 parsePrim _ =   Nothing
 
 parsePredOp :: Term -> Maybe Primitive
@@ -92,7 +93,7 @@ parseArithOp (Symbol str) =
     _         -> Nothing
 parseArithOp _ = Nothing
 
-evalPrim :: (MonadEnv m, MonadError EvalError m) => (McCarthyOp, Either Term (DotList Term)) -> m Term
+evalPrim :: (MonadEnv m, MonadError EvalError m) => (McCarthyOp, [Term]) -> m Term
 evalPrim (op, args) =
   case op of
     Atom   -> f atom
@@ -103,23 +104,23 @@ evalPrim (op, args) =
     Define -> h $ define evalTerm
     Cond   -> g $ cond evalTerm
     Quote  -> h quote 
-    Lambda -> h lambda
+    Lambda func -> applyLambda evalTerm (func:args)
     Apply  -> f $ apply evalTerm
   where
     f op' =
       case args of
-        Left _ -> throwError IllFormedSyntax
-        Right args' -> op' =<< traverse evalTerm args'
+        [] -> throwError IllFormedSyntax
+        args' -> op' =<< traverse evalTerm args'
     g op' =
       case args of
-        Left _ -> throwError UnspecifiedReturn
-        Right args' -> op' =<< traverse (evalTerm <=< quotePredicates) args'
+        [] -> throwError UnspecifiedReturn
+        args' -> op' =<< traverse (evalTerm <=< quotePredicates) args'
     h op' = 
       case args of
-        Left _ -> throwError IllFormedSyntax
-        Right args' -> op' args'
+        [] -> throwError IllFormedSyntax
+        args' -> op' args'
 
-evalArith :: (MonadEnv m, MonadError EvalError m) => (ArithOp, Either Term (DotList Term)) -> m Term
+evalArith :: (MonadEnv m, MonadError EvalError m) => (ArithOp, [Term]) -> m Term
 evalArith (op, args) =
   case op of
     Add      -> f add 0
@@ -133,16 +134,15 @@ evalArith (op, args) =
   where
     f op' identity = 
       case args of
-        Left Nil -> return $ Number identity
-        Left (Number i) -> return $ Number i
-        Left _  -> throwError IllFormedSyntax
-        Right args' -> op' =<< traverse (asInteger <=< evalTerm) args'
+        [] -> return $ Number identity
+        [Number i] -> return $ Number i
+        args' -> op' =<< traverse (asInteger <=< evalTerm) args'
     g op' =
       case args of
-        Left _  -> throwError IllFormedSyntax
-        Right args' -> op' =<< traverse (asInteger <=< evalTerm) args'
+        []  -> throwError IllFormedSyntax
+        args' -> op' =<< traverse (asInteger <=< evalTerm) args'
 
-evalPred :: (MonadEnv m, MonadError EvalError m) => (PredOp, Either Term (DotList Term)) -> m Term
+evalPred :: (MonadEnv m, MonadError EvalError m) => (PredOp, [Term]) -> m Term
 evalPred (op, args) =
   case op of
     And     -> f and'
@@ -154,8 +154,8 @@ evalPred (op, args) =
   where
     f op' =
       case args of
-        Left _      -> throwError IllFormedSyntax
-        Right args' -> op' =<< traverse (evalTerm <=< quotePredicates) args'
+        [] -> throwError IllFormedSyntax
+        args' -> op' =<< traverse (evalTerm <=< quotePredicates) args'
 
 eval :: Result Term -> LispM EvalEnv Term
 eval (Success term) = evalTerm term
@@ -168,22 +168,25 @@ eval (Failure _)  = throwError IllFormedSyntax
 
 asInteger :: MonadError EvalError m => Term -> m Term
 asInteger (Number n) = return $ Number n
-asInteger Nil = return Nil
+asInteger (List []) = return (List [])
 asInteger term = throwError $ TypeError "asInteger" term
 
-badApp :: MonadError EvalError m => DotList Term -> m Term
-badApp (x :-. _) = throwError $ ObjectNotApplicable x
-badApp (x :-: _) = throwError $ ObjectNotApplicable x
+badApp :: MonadError EvalError m => Term -> m Term
+badApp (DotList (x:_, _)) = throwError $ ObjectNotApplicable x
+badApp (DotList ([], _)) = throwError IllFormedSyntax
+badApp (List (x:_)) = throwError $ ObjectNotApplicable x
+badApp term = pure term
 
-improperList :: MonadError EvalError m => DotList Term -> m Term
-improperList xs = throwError . NotAProperList $ DotList xs
+improperList :: MonadError EvalError m => Term -> m Term
+improperList (DotList (xs, x)) = throwError . NotAProperList $ DotList (xs, x)
+improperList term = pure term
 
 quotePredicates :: (MonadEnv m, MonadState env m, MonadError EvalError m) => Term -> m Term
-quotePredicates (List (p :-: e :-. Nil)) = do
+quotePredicates (List [p, e]) = do
   p' <- evalTerm p
-  return $ List (Symbol "quote" :-: (List (p' :-: (e :-. Nil)) :-. Nil))
-quotePredicates (List (p :-. Nil)) = do
-  p' <- evalTerm p
-  return $ List (Symbol "quote" :-: (DotList $ p' :-. Nil) :-. Nil)
-quotePredicates Nil = return Nil
+  return $ List [Symbol "quote", List [p', e]]
+quotePredicates (List [pe]) = do
+  pe' <- evalTerm pe
+  return $ List [Symbol "quote", List [pe']]
+quotePredicates (List []) = return $ List []
 quotePredicates _ = throwError IllFormedSyntax

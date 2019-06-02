@@ -7,23 +7,23 @@ import Control.Monad.Except
 import Evaluator.Types
 
 
-add :: MonadError EvalError m => DotList Term -> m Term
+add :: MonadError EvalError m => [Term] -> m Term
 add terms = return . Number $ f terms
-  where f (Number x :-. Nil) = x
-        f (Number x :-: xs)  = x + f xs
-        f _                = 0
+  where f [Number x] = x
+        f (Number x : xs) = x + f xs
+        f _ = 0
 
-subtract' :: MonadError EvalError m => DotList Term -> m Term
+subtract' :: MonadError EvalError m => [Term] -> m Term
 subtract' terms = return . Number $ f terms
   where f = undefined
 
-multiply :: MonadError EvalError m => DotList Term -> m Term
+multiply :: MonadError EvalError m => [Term] -> m Term
 multiply terms = return . Number $ f terms
-  where f (Number x :-. Nil) = x
-        f (Number x :-: xs)  = x * f xs
+  where f [Number x] = x
+        f (Number x : xs)  = x * f xs
         f _                = 1
 
-divide :: MonadError EvalError m => DotList Term -> m Term
+divide :: MonadError EvalError m => [Term] -> m Term
 divide = arrity 2 "/" f
   where
     f mterm =
@@ -32,7 +32,7 @@ divide = arrity 2 "/" f
         Binary (Number x) (Number y) -> return . Number $ x `div` y
         Binary _ _ -> undefined
 
-abs' :: MonadError EvalError m => DotList Term -> m Term
+abs' :: MonadError EvalError m => [Term] -> m Term
 abs' = arrity 1 "abs" f
   where
     f mterm =
@@ -41,7 +41,7 @@ abs' = arrity 1 "abs" f
         Unary _ -> undefined
         Binary _ _ -> undefined
 
-modulo :: MonadError EvalError m => DotList Term -> m Term
+modulo :: MonadError EvalError m => [Term] -> m Term
 modulo = arrity 2 "%" f
   where
     f mterm =
@@ -50,7 +50,7 @@ modulo = arrity 2 "%" f
         Binary _ _ -> undefined
         Unary _ -> undefined
 
-negate' :: MonadError EvalError m => DotList Term -> m Term
+negate' :: MonadError EvalError m => [Term] -> m Term
 negate' = arrity 1 "negate" f
   where
     f mterm =
@@ -59,7 +59,7 @@ negate' = arrity 1 "negate" f
         Unary _ -> undefined
         Binary _ _ -> undefined
 
-signum' :: MonadError EvalError m => DotList Term -> m Term
+signum' :: MonadError EvalError m => [Term] -> m Term
 signum' = arrity 1 "signum" f
   where
     f mterm =

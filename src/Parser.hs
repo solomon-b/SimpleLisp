@@ -10,7 +10,7 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Text.Trifecta
 
-import Evaluator.Types (Term(..), DotList(..), listToDot)
+import Evaluator.Types (Term(..))
 
 data ParseError = ParseError deriving Show
 
@@ -34,33 +34,43 @@ parseBool :: Parser Term
 parseBool = Boolean <$> (string "True" $> True <|> (string "False" $> False))
 
 parseQuote :: Parser Term
-parseQuote = (\x -> List (Symbol "quote" :-: x :-. Nil)) <$> (void (char '\'') *> parseTerm)
+parseQuote = (\x -> List [Symbol "quote", x]) <$> (void (char '\'') *> parseTerm)
 
 parseScalars :: Parser Term
-parseScalars = parseQuote <|> parseBool <|> parseSymbol <|> parseNumber <|> parseString' 
+parseScalars = try parseLambda
+  <|> try parseQuote
+  <|> try parseBool
+  <|> try parseSymbol
+  <|> try parseNumber
+  <|> try parseString' 
 
 parseRegList :: Parser Term
-parseRegList = parens $ do
-  xs <- parseTerm `sepBy` spaces
-  if null xs
-  then return Nil
-  else return . List $ f xs
-  where f [] = undefined
-        f [x] = x :-. Nil
-        f (x:xs) = x :-: f xs
+parseRegList = parens $  List <$> parseTerm `sepBy` spaces
 
 parseDotList :: Parser Term
 parseDotList = parens $ do
   ts <- parseTerm `sepEndBy` spaces
   void $ token (char '.')
   t <- parseTerm
-  return . DotList $ listToDot $ ts ++ [t]
+  return . DotList $ (ts, t)
 
 parseList :: Parser Term
 parseList = try parseDotList <|> try parseRegList
 
+parseParams :: Parser [Term]
+parseParams = parens $ (fmap . fmap) Symbol $ some letter `sepEndBy` spaces
+
+parseLambda :: Parser Term
+parseLambda = token . parens $ do
+  whiteSpace
+  void . token $ string "lambda"
+  params <- parseParams
+  whiteSpace
+  body <- parseList
+  return $ Func params body
+
 parseTerm :: Parser Term
-parseTerm = parseScalars <|> parseList
+parseTerm = try parseScalars <|> try parseList 
 
 parse :: Text -> Result Term
 parse = parseByteString parseTerm mempty . encodeUtf8

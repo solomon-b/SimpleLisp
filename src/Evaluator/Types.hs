@@ -55,24 +55,22 @@ data Term
   | Number Integer
   | String String
   | Boolean Bool
-  | List (DotList Term)
-  | DotList (DotList Term)
-  | Nil
+  | List [Term]
+  | DotList ([Term], Term)
   | Error EvalError
-  | Func [String] Term
+  | Func [Term] Term
   -- | Prim Primitive
-  deriving Eq
+  deriving (Show, Eq)
 
-instance Show Term where
-    show (Symbol str) = str
-    show (Number n) = show n
-    show (String str) = show str
-    show (Boolean bool) = show bool
-    show (List xs) = "(" ++ show xs ++ ")"
-    show (DotList xs) = "(" ++ show xs ++ ")"
-    show (Error e) = show e
-    show Nil = "()"
-    show (Func args body) = "(lambda (" ++ unwords (map show args) ++ ")" ++ show body
+--instance Show Term where
+--    show (Symbol str) = str
+--    show (Number n) = show n
+--    show (String str) = show str
+--    show (Boolean bool) = show bool
+--    show (List xs) = "(" ++ unwords (show <$> xs) ++ ")"
+--    show (DotList (xs, x)) = "(" ++ unwords (show <$> xs) ++ " . " ++ show x ++ ")"
+--    show (Error e) = show e
+--    show (Func args body) = "(lambda (" ++ unwords (map show args) ++ ")" ++ show body
 
 
 -----------------
@@ -107,23 +105,20 @@ instance Show EvalError where
 
 data Arrity = Unary Term | Binary Term Term
 
-unary :: DotList Term -> Arrity
-unary (x :-: _) = Unary x
-unary (x :-. _) = Unary x
+unary :: [Term] -> Arrity
+unary (x:_) = Unary x
 
-binary :: DotList Term -> Arrity
-binary (x :-: y :-: _) = Binary x y
-binary (x :-: y :-. _) = Binary x y
-binary (x :-. y)       = Binary x y
+binary :: [Term] -> Arrity
+binary (x:y:_) = Binary x y
   
-arrity :: MonadError EvalError m => Int -> String -> (m Arrity -> m Term) -> DotList Term -> m Term
+arrity :: MonadError EvalError m => Int -> String -> (m Arrity -> m Term) -> [Term] -> m Term
 arrity i name cont xs =
-  if length xs /= i + 1
-  then throwError $ WrongArrity name i (length xs - 1)
+  if length xs /= i
+  then throwError $ WrongArrity name i (length xs)
   else case i of
     1 -> cont . pure $ unary xs
     2 -> cont . pure $ binary xs
-    j -> throwError $ WrongArrity name j (length xs - 1) -- Verify this  error message makes sense
+    j -> throwError $ WrongArrity name j (length xs) -- Verify this  error message makes sense
 
 
 ---------------

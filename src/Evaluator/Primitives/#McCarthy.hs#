@@ -118,6 +118,7 @@ type Values = [Term]
 
 applyLambda :: MonadError EvalError m => (Term -> m Term) -> [Term] -> m Term
 applyLambda f (Func params body:values) =
+  | 
   case body of
     List _ -> liftEither (substituteAll params values body) >>= f
     Symbol _ | null params -> f body
