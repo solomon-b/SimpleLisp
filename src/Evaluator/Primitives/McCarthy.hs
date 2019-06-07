@@ -119,6 +119,8 @@ type Values = [Term]
 applyLambda :: MonadError EvalError m => (Term -> m Term) -> [Term] -> m Term
 applyLambda f (Func params body:values) =
   case body of
+    -- | TODO: Same param/value verification needed for List as Symbol
+    -- | TODO: Symbol Body needs to not be evaluated until application. Where is this happening?
     List _ -> liftEither (substituteAll params values body) >>= f
     Symbol _ | null params -> f body
     Symbol _ | length params <= length values ->

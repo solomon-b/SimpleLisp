@@ -27,7 +27,7 @@ import Evaluator.Primitives.Predicate
 -- quote  ✓
 -- cond   ✓
 -- define ✓
--- lambda
+-- lambda ✓
 -- label
 -- fix :D
 
