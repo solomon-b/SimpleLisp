@@ -36,18 +36,18 @@ evalTerm (Symbol "+") = throwError IllFormedSyntax
 evalTerm (Symbol str) = readVar str
 evalTerm (List []) = return $ List []
 evalTerm (List xs) =
-  let (op, args) = first (\x -> parseArithOp x <|> parsePrim x <|> parsePredOp x) (head xs, tail xs)
+  let (op, args) = first (\x -> parseArithOp x <|> parsePredOp x <|> parsePrim x) (head xs, tail xs)
   in case op of
     Just (Arith arithOp)   -> evalArith (arithOp, args)
-    Just (McCarthy primOp) -> evalPrim (primOp, args)
     Just (Pred predOp)     -> evalPred (predOp, args)
+    Just (McCarthy primOp) -> evalPrim (primOp, args)
     Nothing                -> (badApp . List) =<< traverse evalTerm xs
 evalTerm (DotList (xs, x)) = improperList . DotList =<< traverse evalTerm (xs, x)
 evalTerm term = return term
 
-data McCarthyOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote | Lambda Term | Apply
-data ArithOp = Add | Subtract | Multiply | Divide | ABS | Modulo | Signum | Negate
-data PredOp = And | Or | Any | All | Greater | Less
+data McCarthyOp = Atom | Cons | Car | Eq | Cdr | Define | Cond | Quote | Lambda Term | Apply | Lookup String
+data ArithOp    = Add | Subtract | Multiply | Divide | ABS | Modulo | Signum | Negate
+data PredOp     = And | Or | Any | All | Greater | Less
 
 data Primitive = McCarthy McCarthyOp | Arith ArithOp | Pred PredOp
 
@@ -62,8 +62,8 @@ parsePrim (Symbol str) =
     "define" -> Just $ McCarthy Define
     "cond"   -> Just $ McCarthy Cond
     "quote"  -> Just $ McCarthy Quote
-    "apply" ->  Just $ McCarthy Apply
-    _        -> Nothing
+    "apply"  -> Just $ McCarthy Apply
+    _        -> Just $ McCarthy (Lookup str)
 parsePrim term@(Func _ _) = Just . McCarthy $ Lambda term
 parsePrim _ =   Nothing
 
@@ -93,32 +93,46 @@ parseArithOp (Symbol str) =
     _         -> Nothing
 parseArithOp _ = Nothing
 
+--lookupFunction :: (MonadEnv m, MonadError EvalError m) => [String] -> m Term
+--lookupFunction (x:xs) = do
+--  var <- readVar x
+--  case var of
+--    f@(Func _ _) -> applyLambda evalTerm f:(evalTerm xs) 
+--    term -> badApp term
+
 evalPrim :: (MonadEnv m, MonadError EvalError m) => (McCarthyOp, [Term]) -> m Term
 evalPrim (op, args) =
   case op of
-    Atom   -> f atom
-    Cons   -> f cons
-    Car    -> f car
-    Eq     -> f eq
-    Cdr    -> f cdr
-    Define -> h $ define evalTerm
-    Cond   -> g $ cond evalTerm
-    Quote  -> h quote 
+    Atom        -> f atom
+    Cons        -> f cons
+    Car         -> f car
+    Eq          -> f eq
+    Cdr         -> f cdr
+    Define      -> h $ define evalTerm
+    Cond        -> g $ cond evalTerm
+    Quote       -> h quote 
     Lambda func -> applyLambda evalTerm (func:args)
-    Apply  -> f $ apply evalTerm
+    Apply       -> f $ apply evalTerm
+    Lookup str  -> i str
   where
     f op' =
       case args of
-        [] -> throwError IllFormedSyntax
+        []    -> throwError IllFormedSyntax
         args' -> op' =<< traverse evalTerm args'
     g op' =
       case args of
-        [] -> throwError UnspecifiedReturn
+        []    -> throwError UnspecifiedReturn
         args' -> op' =<< traverse (evalTerm <=< quotePredicates) args'
     h op' = 
       case args of
-        [] -> throwError IllFormedSyntax
+        []    -> throwError IllFormedSyntax
         args' -> op' args'
+    i var = do
+      val <- readVar var
+      case val of
+        f@(Func _ _) -> applyLambda evalTerm (f:args) 
+        term -> badApp term
+        
 
 evalArith :: (MonadEnv m, MonadError EvalError m) => (ArithOp, [Term]) -> m Term
 evalArith (op, args) =

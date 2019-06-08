@@ -14,8 +14,10 @@ add terms = return . Number $ f terms
         f _ = 0
 
 subtract' :: MonadError EvalError m => [Term] -> m Term
+subtract' [Number x] = return . Number $ (- x)
 subtract' terms = return . Number $ f terms
-  where f = undefined
+  where f (Number x : xs) = x - f xs
+        f _ = 0
 
 multiply :: MonadError EvalError m => [Term] -> m Term
 multiply terms = return . Number $ f terms

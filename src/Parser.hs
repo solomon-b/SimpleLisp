@@ -22,7 +22,7 @@ parseNumber = Number <$> integer
 
 parseSymbol :: Parser Term
 parseSymbol = do
-  x <- letter <|> oneOf "?+*/%"
+  x <- letter <|> oneOf "?+*/%-"
   xs <- many (alphaNum <|> oneOf "?+*/%")
   return $ Symbol (x:xs)
 --parseSymbol = (\x xs -> Symbol (x:xs)) <$> letter <*> many (alphaNum <|> char '?')
