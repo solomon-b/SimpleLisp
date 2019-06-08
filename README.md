@@ -16,9 +16,6 @@ simpleLisp -e "Some quoted lisp expression"
 ```
 
 ## TODO
-- Implement McCarthy's primitive functions:
-  + lambda
-  + label
 - Implement `let` using ReaderT
 - Testing
   + QuickCheck Arbitary Instance
