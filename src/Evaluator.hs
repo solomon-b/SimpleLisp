@@ -18,18 +18,6 @@ import Evaluator.Primitives.Predicate
 ------------------
 --- Evaluation ---
 ------------------
--- | TODO: Primitive Functions
--- atom?  ✓ 
--- eq     ✓
--- car    ✓
--- cdr    ✓
--- cons   ✓
--- quote  ✓
--- cond   ✓
--- define ✓
--- lambda ✓
--- label
--- fix :D
 
 evalTerm :: (MonadEnv m, MonadState env m, MonadError EvalError m) => Term -> m Term
 evalTerm (Symbol "+") = throwError IllFormedSyntax
@@ -93,13 +81,6 @@ parseArithOp (Symbol str) =
     _         -> Nothing
 parseArithOp _ = Nothing
 
---lookupFunction :: (MonadEnv m, MonadError EvalError m) => [String] -> m Term
---lookupFunction (x:xs) = do
---  var <- readVar x
---  case var of
---    f@(Func _ _) -> applyLambda evalTerm f:(evalTerm xs) 
---    term -> badApp term
-
 evalPrim :: (MonadEnv m, MonadError EvalError m) => (McCarthyOp, [Term]) -> m Term
 evalPrim (op, args) =
   case op of
@@ -132,7 +113,6 @@ evalPrim (op, args) =
       case val of
         f@(Func _ _) -> applyLambda evalTerm (f:args) 
         term -> badApp term
-        
 
 evalArith :: (MonadEnv m, MonadError EvalError m) => (ArithOp, [Term]) -> m Term
 evalArith (op, args) =
